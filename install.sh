@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
 REPO="wubinstu/adrm"
 
@@ -24,30 +23,40 @@ DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${BINARY_NAME}
 echo "=== adrm installer ==="
 echo ""
 
-# Ask binary install location
+# Read from /dev/tty so it works even when piped: curl ... | bash
+if ! [ -t 0 ]; then
+    exec 0</dev/tty
+fi
+
 read -rp "Binary install location [default: ~/.local/bin]: " INSTALL_DIR
-INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+if [ -z "$INSTALL_DIR" ]; then
+    INSTALL_DIR="$HOME/.local/bin"
+fi
 INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
 
-# Ask home directory
-read -rp "adrm home directory [default: ~/.adrm/]: " ADRM_HOME
-ADRM_HOME="${ADRM_HOME:-$HOME/.adrm/}"
+read -rp "adrm home directory [default: ~/.adrm]: " ADRM_HOME
+if [ -z "$ADRM_HOME" ]; then
+    ADRM_HOME="$HOME/.adrm"
+fi
 ADRM_HOME="${ADRM_HOME/#\~/$HOME}"
+ADRM_HOME="${ADRM_HOME%/}"
 
-# Ask to create alias
 read -rp "Create 'rm' alias in shell config? [Y/n]: " CREATE_ALIAS
-CREATE_ALIAS="${CREATE_ALIAS:-y}"
+if [ -z "$CREATE_ALIAS" ]; then
+    CREATE_ALIAS="y"
+fi
 
 echo ""
 echo "Installing adrm..."
+echo ""
 
 mkdir -p "$INSTALL_DIR"
 
 echo "Downloading ${BINARY_NAME}..."
 curl -fsSL "$DOWNLOAD_URL" -o "${INSTALL_DIR}/adrm"
 chmod +x "${INSTALL_DIR}/adrm"
+echo "Downloaded to ${INSTALL_DIR}/adrm"
 
-# Create adrm home directory
 mkdir -p "${ADRM_HOME}"
 
 # Detect shell config file
@@ -58,40 +67,33 @@ elif [ -n "${BASH_VERSION:-}" ]; then
     SHELL_RC="$HOME/.bashrc"
 fi
 
-# Add to PATH if needed
-if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
-    if [ -n "$SHELL_RC" ]; then
-        echo "" >> "$SHELL_RC"
-        echo "export PATH=\"\${PATH}:${INSTALL_DIR}\"" >> "$SHELL_RC"
-        echo "Added ${INSTALL_DIR} to PATH in ${SHELL_RC}"
-    fi
+if [ -z "$SHELL_RC" ]; then
+    SHELL_RC="$HOME/.bashrc"
 fi
 
-# Set SAFE_RM_HOME in shell config
-if [ -n "$SHELL_RC" ]; then
-    if ! grep -q "SAFE_RM_HOME" "$SHELL_RC" 2>/dev/null; then
-        echo "" >> "$SHELL_RC"
-        echo "export SAFE_RM_HOME=\"${ADRM_HOME%/}\"" >> "$SHELL_RC"
-        echo "Set SAFE_RM_HOME=${ADRM_HOME%/} in ${SHELL_RC}"
-    fi
+# Remove old adrm entries from shell config
+if [ -f "$SHELL_RC" ]; then
+    sed -i '/# >>> adrm >>>/,/# <<< adrm <<</d' "$SHELL_RC"
 fi
 
-# Create alias if requested
-if [[ "$CREATE_ALIAS" =~ ^[Yy] ]]; then
-    if [ -n "$SHELL_RC" ]; then
-        # Remove old adrm alias if exists
-        if grep -q "alias rm.*adrm" "$SHELL_RC" 2>/dev/null; then
-            sed -i '/alias rm.*adrm/d' "$SHELL_RC"
-        fi
-        echo "" >> "$SHELL_RC"
-        echo "alias rm=\"SAFE_RM_HOME=${ADRM_HOME%/} ${INSTALL_DIR}/adrm\"" >> "$SHELL_RC"
-        echo "Created 'rm' alias in ${SHELL_RC}"
-    fi
-fi
+# Write new config block
+{
+    echo ""
+    echo "# >>> adrm >>>"
+    echo "export ADRM_HOME=\"${ADRM_HOME}\""
+    echo "alias rm=\"ADRM_HOME=\\\"${ADRM_HOME}\\\" ${INSTALL_DIR}/adrm\""
+    echo "# <<< adrm <<<"
+} >> "$SHELL_RC"
 
 echo ""
-echo "adrm installed successfully to ${INSTALL_DIR}/adrm"
+echo "adrm installed successfully!"
+echo ""
+echo "  Binary:  ${INSTALL_DIR}/adrm"
+echo "  Home:    ${ADRM_HOME}"
+echo "  Config:  ${SHELL_RC}"
+echo ""
 echo "Run 'source ${SHELL_RC}' or start a new shell to use adrm."
 echo ""
-echo "To generate default config: adrm --default"
-echo "To view help: adrm --help"
+echo "Quick start:"
+echo "  adrm --default     # generate default config"
+echo "  adrm --help        # show help"

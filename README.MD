@@ -178,7 +178,7 @@ Multiple sort options supported, applied in order of appearance.
 
 ## Configuration
 
-Config file: `~/.adrm/config` (or `$SAFE_RM_HOME/config`)
+Config file: `~/.adrm/config` (or `$ADRM_HOME/config`)
 
 ```ini
 # Default cleanup period in days
@@ -200,7 +200,7 @@ query_default_limit = 10
 
 | Variable | Description |
 |----------|-------------|
-| `SAFE_RM_HOME` | Custom adrm home directory (default: `~/.adrm`) |
+| `ADRM_HOME` | Custom adrm home directory (default: `~/.adrm`) |
 
 ### Ignore rules
 

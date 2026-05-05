@@ -361,7 +361,7 @@ namespace adrm {
                      "  --version            output version information and exit\n"
                      "\n"
                      "Environment variables:\n"
-                     "  SAFE_RM_HOME         custom adrm home directory (default: ~/.adrm)\n");
+                     "  ADRM_HOME         custom adrm home directory (default: ~/.adrm)\n");
     }
 
     auto printVersion() -> void {

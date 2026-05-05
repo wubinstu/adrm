@@ -49,7 +49,7 @@ namespace adrm {
 
 
     auto getAdrmHome() -> std::string {
-        auto * env = std::getenv("SAFE_RM_HOME");
+        auto * env = std::getenv("ADRM_HOME");
         if (env && env[0] != '\0')
             return std::string(env);
 
