@@ -88,6 +88,13 @@ add_executable(adrm ${ADRM_SOURCES})
 
 target_include_directories(adrm PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+option(ADRM_STATIC_LINK "Statically link SQLite3 and C++ runtime" OFF)
+
+if(ADRM_STATIC_LINK)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++ -static-libgcc")
+endif()
+
 find_package(SQLite3 REQUIRED)
 target_link_libraries(adrm PRIVATE SQLite::SQLite3)
 target_link_libraries(adrm PRIVATE dl pthread)

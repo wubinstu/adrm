@@ -40,8 +40,7 @@ jobs:
             -DCMAKE_C_COMPILER=gcc-12 \
             -DCMAKE_CXX_COMPILER=g++-12 \
             -DCMAKE_C_STANDARD=17 \
-            -DSQLite3_USE_STATIC_LIBS=ON \
-            -DCMAKE_CXX_FLAGS="-static-libstdc++ -static-libgcc"
+            -DADRM_STATIC_LINK=ON
           cmake --build build
           strip build/adrm
 
