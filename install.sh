@@ -81,7 +81,7 @@ fi
     echo ""
     echo "# >>> adrm >>>"
     echo "export ADRM_HOME=\"${ADRM_HOME}\""
-    echo "alias rm=\"ADRM_HOME=\\\"${ADRM_HOME}\\\" ${INSTALL_DIR}/adrm\""
+    echo "alias rm=\"${INSTALL_DIR}/adrm\""
     echo "# <<< adrm <<<"
 } >> "$SHELL_RC"
 

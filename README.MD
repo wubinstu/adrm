@@ -19,7 +19,7 @@ A safe alternative to `/bin/rm` that moves files to a trash directory instead of
 ### Quick install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh > /tmp/adrm_install.sh && sh /tmp/adrm_install.sh
 ```
 
 The installer will ask for:
