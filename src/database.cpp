@@ -1,11 +1,11 @@
 /**
  * @file:       database.cpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
+ * @author:     GLM-5.1-OpenCode
+ *
  * @date:       2026-04-30
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -272,6 +272,37 @@ namespace adrm {
         if (!where_clause.empty())
             sql += " WHERE " + where_clause;
         sql += " ORDER BY id DESC";
+        if (limit > 0)
+            sql += " LIMIT " + std::to_string(limit);
+
+        sqlite3_stmt * stmt = nullptr;
+        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+            std::fprintf(stderr, "adrm: query failed: %s\n", sqlite3_errmsg(db));
+            return false;
+        }
+
+        while (sqlite3_step(stmt) == SQLITE_ROW)
+            out.push_back(this->readRecord(stmt));
+
+        sqlite3_finalize(stmt);
+        return true;
+    }
+
+    auto Database::queryBySQL(const std::string & where_clause,
+                              std::int64_t limit,
+                              const std::string & order_by,
+                              std::vector<FileRecord> & out) -> bool {
+        auto * db = static_cast<sqlite3 *>(this->_m_db);
+        if (!db)
+            return false;
+
+        std::string sql = "SELECT * FROM files";
+        if (!where_clause.empty())
+            sql += " WHERE " + where_clause;
+        if (!order_by.empty())
+            sql += " ORDER BY " + order_by;
+        else
+            sql += " ORDER BY id DESC";
         if (limit > 0)
             sql += " LIMIT " + std::to_string(limit);
 

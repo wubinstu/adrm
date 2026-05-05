@@ -1,12 +1,11 @@
 
 /**
  * @file:       cli.hpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
- * @date:       2026-04-30
+ * @author:     GLM-5.1-OpenCode
+ * @date:       2026-05-05
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -69,6 +68,17 @@ namespace adrm {
         std::string deadline_str;
     };
 
+    enum class SortDirection : std::uint8_t
+    {
+        asc,
+        desc,
+    };
+
+    struct SortSpec {
+        SortDirection direction = SortDirection::asc;
+        std::string field;
+    };
+
     struct ParsedArgs {
         OperationMode mode = OperationMode::remove;
         bool flag_force = false;
@@ -77,8 +87,10 @@ namespace adrm {
         bool flag_recursive = false;
         bool flag_directory = false;
         bool flag_verbose = false;
+        bool flag_color = false;
         std::vector<FileWithDuration> files;
         std::vector<std::string> filter_args;
+        std::vector<SortSpec> sort_specs;
     };
 
     [[nodiscard]] auto parseArgs(int argc, char * argv[]) -> ParsedArgs;

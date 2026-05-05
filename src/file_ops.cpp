@@ -1,11 +1,11 @@
 /**
  * @file:       file_ops.cpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
+ * @author:     GLM-5.1-OpenCode
+ *
  * @date:       2026-04-30
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal

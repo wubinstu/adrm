@@ -1,12 +1,12 @@
 
 /**
  * @file:       database.hpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
+ * @author:     GLM-5.1-OpenCode
+ *
  * @date:       2026-04-30
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -97,6 +97,11 @@ namespace adrm {
 
         [[nodiscard]] auto queryBySQL(const std::string & where_clause,
                                       std::int64_t limit,
+                                      std::vector<FileRecord> & out) -> bool;
+
+        [[nodiscard]] auto queryBySQL(const std::string & where_clause,
+                                      std::int64_t limit,
+                                      const std::string & order_by,
                                       std::vector<FileRecord> & out) -> bool;
 
         [[nodiscard]] auto queryById(std::int64_t id, FileRecord & out) -> bool;

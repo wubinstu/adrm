@@ -1,11 +1,11 @@
 /**
  * @file:       time_utils.cpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
+ * @author:     GLM-5.1-OpenCode
+ *
  * @date:       2026-04-30
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -148,7 +148,7 @@ namespace adrm {
 
         std::string cleaned;
         for (auto c : s) {
-            if (c == '/' || c == '_' || c == '-')
+            if (c == '/' || c == '_' || c == '-' || c == ':')
                 cleaned += ' ';
             else
                 cleaned += c;

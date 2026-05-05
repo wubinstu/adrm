@@ -1,11 +1,10 @@
 /**
  * @file:       cli.cpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
- * @date:       2026-04-30
+ * @author:     GLM-5.1-OpenCode
+ * @date:       2026-05-05
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -44,19 +43,52 @@
 namespace adrm {
 
 
+    static auto isValidSortField(const std::string & field) -> bool {
+        return field == "id" || field == "fname" || field == "fdate" ||
+               field == "fsize" || field == "rdate" || field == "cdate" ||
+               field == "state";
+    }
+
     auto parseArgs(int argc, char * argv[]) -> ParsedArgs {
         ParsedArgs result;
-        std::vector<std::string> pending_files;
-        std::string current_duration;
-        bool current_is_deadline = false;
         bool after_separator = false;
         bool filter_mode = false;
+
+        struct PendingDuration {
+            bool active = false;
+            bool is_deadline = false;
+            std::string value;
+            bool has_files_after = false;
+        };
+
+        PendingDuration current_dur;
+
+        std::vector<FileWithDuration> collected_files;
+
+        auto flushPendingDuration = [&]() {
+            if (current_dur.active && !current_dur.has_files_after) {
+                std::fprintf(stderr, "adrm: error: duration '%s%s' has no files after it\n",
+                             current_dur.is_deadline ? "--deadline " : "",
+                             current_dur.value.c_str());
+                result.mode = OperationMode::help;
+            }
+            current_dur = {};
+        };
 
         for (int i = 1; i < argc; ++i) {
             std::string arg(argv[i]);
 
             if (after_separator) {
-                pending_files.push_back(arg);
+                FileWithDuration fwd;
+                fwd.path = arg;
+                if (current_dur.active) {
+                    fwd.has_duration = true;
+                    fwd.is_deadline = current_dur.is_deadline;
+                    fwd.duration_str = current_dur.value;
+                    fwd.deadline_str = current_dur.is_deadline ? current_dur.value : "";
+                    current_dur.has_files_after = true;
+                }
+                collected_files.push_back(fwd);
                 continue;
             }
 
@@ -82,7 +114,7 @@ namespace adrm {
 
             if (arg == "--query-all") {
                 result.mode = OperationMode::query_all;
-                filter_mode = false;
+                filter_mode = true;
                 continue;
             }
 
@@ -141,25 +173,35 @@ namespace adrm {
                 return result;
             }
 
-            if (arg == "--deadline") {
-                if (i + 1 < argc) {
-                    ++i;
-                    if (!current_duration.empty() || current_is_deadline) {
-                        for (const auto & f : pending_files) {
-                            FileWithDuration fwd;
-                            fwd.path = f;
-                            fwd.has_duration = true;
-                            fwd.is_deadline = current_is_deadline;
-                            fwd.duration_str = current_duration;
-                            fwd.deadline_str = current_is_deadline ? current_duration : "";
-                            result.files.push_back(fwd);
-                        }
-                        pending_files.clear();
-                    }
+            if (arg == "--recursive") {
+                result.flag_recursive = true;
+                continue;
+            }
 
-                    current_is_deadline = true;
-                    current_duration = argv[i];
+            if (arg == "--color") {
+                result.flag_color = true;
+                continue;
+            }
+
+            if (arg == "--sort-asc" && i + 1 < argc) {
+                ++i;
+                if (!isValidSortField(argv[i])) {
+                    std::fprintf(stderr, "adrm: invalid sort field '%s'\n", argv[i]);
+                    result.mode = OperationMode::help;
+                    return result;
                 }
+                result.sort_specs.push_back({SortDirection::asc, std::string(argv[i])});
+                continue;
+            }
+
+            if (arg == "--sort-des" && i + 1 < argc) {
+                ++i;
+                if (!isValidSortField(argv[i])) {
+                    std::fprintf(stderr, "adrm: invalid sort field '%s'\n", argv[i]);
+                    result.mode = OperationMode::help;
+                    return result;
+                }
+                result.sort_specs.push_back({SortDirection::desc, std::string(argv[i])});
                 continue;
             }
 
@@ -181,6 +223,20 @@ namespace adrm {
                 }
             }
 
+            if (arg == "--deadline") {
+                if (i + 1 < argc) {
+                    ++i;
+
+                    flushPendingDuration();
+
+                    current_dur.active = true;
+                    current_dur.is_deadline = true;
+                    current_dur.value = argv[i];
+                    current_dur.has_files_after = false;
+                }
+                continue;
+            }
+
             if (arg.size() >= 2 && arg[0] == '-' && arg[1] != '-') {
                 for (std::size_t j = 1; j < arg.size(); ++j) {
                     switch (arg[j]) {
@@ -194,6 +250,7 @@ namespace adrm {
                         result.flag_interactive_once = true;
                         break;
                     case 'r':
+                    case 'R':
                         result.flag_recursive = true;
                         break;
                     case 'd':
@@ -212,47 +269,35 @@ namespace adrm {
             }
 
             if (!filter_mode && isDurationSpecifier(arg)) {
-                if (!pending_files.empty()) {
-                    for (const auto & f : pending_files) {
-                        FileWithDuration fwd;
-                        fwd.path = f;
-                        fwd.has_duration = true;
-                        fwd.is_deadline = false;
-                        fwd.duration_str = arg;
-                        result.files.push_back(fwd);
-                    }
-                    pending_files.clear();
-                }
+                flushPendingDuration();
 
-                current_duration = arg;
-                current_is_deadline = false;
+                current_dur.active = true;
+                current_dur.is_deadline = false;
+                current_dur.value = arg;
+                current_dur.has_files_after = false;
                 continue;
             }
 
             if (!filter_mode) {
-                if (!current_duration.empty() || current_is_deadline) {
-                    FileWithDuration fwd;
-                    fwd.path = arg;
+                FileWithDuration fwd;
+                fwd.path = arg;
+                if (current_dur.active) {
                     fwd.has_duration = true;
-                    fwd.is_deadline = current_is_deadline;
-                    fwd.duration_str = current_duration;
-                    fwd.deadline_str = current_is_deadline ? current_duration : "";
-                    result.files.push_back(fwd);
+                    fwd.is_deadline = current_dur.is_deadline;
+                    fwd.duration_str = current_dur.value;
+                    fwd.deadline_str = current_dur.is_deadline ? current_dur.value : "";
+                    current_dur.has_files_after = true;
                 }
-                else {
-                    pending_files.push_back(arg);
-                }
+                collected_files.push_back(fwd);
             }
         }
 
-        if (!pending_files.empty()) {
-            for (const auto & f : pending_files) {
-                FileWithDuration fwd;
-                fwd.path = f;
-                fwd.has_duration = false;
-                result.files.push_back(fwd);
-            }
-        }
+        flushPendingDuration();
+
+        if (result.mode == OperationMode::help)
+            return result;
+
+        result.files = std::move(collected_files);
 
         return result;
     }
@@ -274,7 +319,7 @@ namespace adrm {
                      "  -v, --verbose        explain what is being done\n"
                      "      --               end of options, treat all following as file names\n"
                      "\n"
-                     "Time specifiers (for remove mode):\n"
+                     "Time specifiers (right-associative, apply to following files):\n"
                      "  +NdNhNmNs           set cleanup time relative to now (e.g., +3d4h5m)\n"
                      "  --deadline DATETIME  set cleanup time to an absolute date/time\n"
                      "\n"
@@ -304,6 +349,11 @@ namespace adrm {
                      "  --cdate DURATION     filter by cleanup date\n"
                      "  --state STATUS       filter by status (recycled/restored/cleaned/exception)\n"
                      "\n"
+                     "Sort options (for --query, --query-all):\n"
+                     "  --sort-asc FIELD     sort ascending by field (id/fname/fdate/fsize/rdate/cdate/state)\n"
+                     "  --sort-des FIELD     sort descending by field\n"
+                     "  --color              colorize output (blue=recycled, green=restored, yellow=cleaned, red=exception)\n"
+                     "\n"
                      "Other:\n"
                      "  --default            generate default configuration file\n"
                      "  --reset-db           reset the database (only if no recycled files)\n"
@@ -321,16 +371,15 @@ namespace adrm {
 
     auto printQueryHelp() -> void {
         std::fprintf(stdout,
-                     "Usage: adrm --query [FILTER...]\n"
+                     "Usage: adrm --query [FILTER...] [SORT...]\n"
                      "\n"
                      "Examples:\n"
                      "  adrm --query                   Show recent 10 records\n"
                      "  adrm --query --items 20        Show recent 20 records\n"
                      "  adrm --query --state recycled  Show only recycled files\n"
                      "  adrm --query --fname \"test\"    Show files matching 'test'\n"
-                     "  adrm --query --id +10          Show records with ID >= 10\n"
-                     "  adrm --query --fsize +1g       Show files larger than 1GB\n"
-                     "  adrm --query --fdate +30d      Show files modified 30+ days ago\n"
+                     "  adrm --query --sort-asc id     Sort by id ascending\n"
+                     "  adrm --query --color           Colorize output\n"
                      "\n"
                      "Filter conditions can be combined (logical AND):\n"
                      "  adrm --query --state recycled --fsize -1g --id +5\n");
@@ -344,8 +393,7 @@ namespace adrm {
                      "  adrm --restore                 Restore the most recent recycled file\n"
                      "  adrm --restore-all             Restore all recycled files\n"
                      "  adrm --restore --id 5          Restore record with ID 5\n"
-                     "  adrm --restore --fname \"test\"  Restore files matching 'test'\n"
-                     "  adrm --restore --state recycled --fsize +1g\n");
+                     "  adrm --restore --fname \"test\"  Restore files matching 'test'\n");
     }
 
     auto printCleanHelp() -> void {
@@ -356,8 +404,7 @@ namespace adrm {
                      "  adrm --clean                   Clean the most recent recycled file\n"
                      "  adrm --clean-all               Clean all recycled files\n"
                      "  adrm --clean --id 5            Clean record with ID 5\n"
-                     "  adrm --clean --state recycled  Clean all recycled files\n"
-                     "  adrm --clean --fname \"test\"    Clean files matching 'test'\n");
+                     "  adrm --clean --state recycled  Clean all recycled files\n");
     }
 
 

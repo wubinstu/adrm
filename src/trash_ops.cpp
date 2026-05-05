@@ -1,11 +1,10 @@
 /**
  * @file:       trash_ops.cpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
- * @date:       2026-04-30
+ * @author:     GLM-5.1-OpenCode
+ * @date:       2026-05-05
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -44,10 +43,14 @@
 #include "time_utils.hpp"
 #include "uuid.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <dirent.h>
+#include <iostream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace adrm {
@@ -66,23 +69,64 @@ namespace adrm {
         return true;
     }
 
+    static auto askYesNo(const char * prompt) -> bool {
+        std::fprintf(stdout, "%s", prompt);
+        std::fflush(stdout);
+        char buf[16];
+        if (!std::fgets(buf, sizeof(buf), stdin))
+            return false;
+        return buf[0] == 'y' || buf[0] == 'Y';
+    }
+
+    static auto isDirEmpty(const std::string & path) -> bool {
+        auto * dir = opendir(path.c_str());
+        if (!dir)
+            return true;
+        auto empty = true;
+        while (auto * entry = readdir(dir)) {
+            if (std::strcmp(entry->d_name, ".") != 0 && std::strcmp(entry->d_name, "..") != 0) {
+                empty = false;
+                break;
+            }
+        }
+        closedir(dir);
+        return empty;
+    }
+
     auto TrashOps::recycleFiles(const ParsedArgs & args) -> bool {
         if (args.files.empty()) {
             std::fprintf(stderr, "adrm: missing operand\n");
             return false;
         }
 
+        if (args.flag_interactive_once && args.files.size() > 3) {
+            std::fprintf(stdout, "adrm: remove %zu files? ", args.files.size());
+            if (!askYesNo(""))
+                return true;
+        }
+
         auto all_ok = true;
 
         for (const auto & fwd : args.files) {
-            if (!this->recycleOne(fwd, args.flag_force, args.flag_recursive, args.flag_verbose))
+            if (args.flag_interactive) {
+                auto abs_path = getAbsolutePath(fwd.path);
+                auto is_dir = isDirectory(abs_path);
+                std::string type_str = is_dir ? "directory" : "regular file";
+                std::string prompt = "adrm: remove " + type_str + " '" + fwd.path + "'? ";
+                if (!askYesNo(prompt.c_str()))
+                    continue;
+            }
+
+            if (!this->recycleOne(fwd, args.flag_force, args.flag_recursive,
+                                  args.flag_directory, args.flag_verbose))
                 all_ok = false;
         }
 
         return all_ok;
     }
 
-    auto TrashOps::recycleOne(const FileWithDuration & fwd, bool force, bool recursive, bool verbose) -> bool {
+    auto TrashOps::recycleOne(const FileWithDuration & fwd, bool force, bool recursive,
+                              bool allow_empty_dir, bool verbose) -> bool {
         auto abs_path = getAbsolutePath(fwd.path);
 
         if (!fileExists(abs_path)) {
@@ -97,8 +141,14 @@ namespace adrm {
 
         auto is_dir = isDirectory(abs_path);
 
-        if (is_dir && !recursive) {
+        if (is_dir && !recursive && !allow_empty_dir) {
             std::fprintf(stderr, "adrm: cannot remove '%s': Is a directory\n", fwd.path.c_str());
+            return false;
+        }
+
+        if (is_dir && !recursive && allow_empty_dir && !isDirEmpty(abs_path)) {
+            std::fprintf(stderr, "adrm: cannot remove '%s': Directory not empty (use -r for recursive)\n",
+                         fwd.path.c_str());
             return false;
         }
 
@@ -228,17 +278,27 @@ namespace adrm {
             }
         }
 
-        auto limit = this->_m_config.query_default_limit;
+        bool has_explicit_filter = false;
+        for (const auto & a : args.filter_args) {
+            if (a == "--id" || a == "--items" || a == "--fname" ||
+                a == "--fdate" || a == "--fsize" || a == "--rdate" ||
+                a == "--cdate" || a == "--state") {
+                has_explicit_filter = true;
+                break;
+            }
+        }
+
+        auto limit = has_explicit_filter ? this->_m_config.query_default_limit : 1;
         auto fc = parseFilterArgs(args.filter_args, limit);
         auto where = buildWhereClause(fc);
         auto actual_limit = buildLimitClause(fc, limit);
 
-        std::vector<FileRecord> records;
         if (!where.empty())
             where = "(" + where + ") AND (status = 'recycled')";
         else
             where = "status = 'recycled'";
 
+        std::vector<FileRecord> records;
         if (!this->_m_db.queryBySQL(where, actual_limit, records))
             return false;
 
@@ -317,8 +377,8 @@ namespace adrm {
             return false;
         }
 
-        setFilePermissions(original_path, record.original_perm, record.original_special_perm);
         setFileOwnership(original_path, record.original_uid, record.original_gid);
+        setFilePermissions(original_path, record.original_perm, record.original_special_perm);
         setFileModTime(original_path, record.original_mtime);
 
         this->_m_db.updateStatus(record.id, FileStatus::restored);
@@ -339,7 +399,17 @@ namespace adrm {
             }
         }
 
-        auto limit = this->_m_config.query_default_limit;
+        bool has_explicit_filter = false;
+        for (const auto & a : args.filter_args) {
+            if (a == "--id" || a == "--items" || a == "--fname" ||
+                a == "--fdate" || a == "--fsize" || a == "--rdate" ||
+                a == "--cdate" || a == "--state") {
+                has_explicit_filter = true;
+                break;
+            }
+        }
+
+        auto limit = has_explicit_filter ? this->_m_config.query_default_limit : 1;
         auto fc = parseFilterArgs(args.filter_args, limit);
         auto where = buildWhereClause(fc);
         auto actual_limit = buildLimitClause(fc, limit);
@@ -413,13 +483,26 @@ namespace adrm {
             return false;
 
         auto now_str = nowAsString();
-        auto cleaned = 0;
+        std::vector<FileRecord> expired;
 
         for (const auto & rec : records) {
-            if (rec.cleanup_time <= now_str) {
-                if (this->cleanOne(rec, false))
-                    ++cleaned;
-            }
+            if (rec.cleanup_time <= now_str)
+                expired.push_back(rec);
+        }
+
+        if (expired.empty()) {
+            std::fprintf(stdout, "adrm: no expired files\n");
+            return true;
+        }
+
+        this->printRecords(expired, false, false);
+        if (!askYesNo("adrm: clean all expired files listed above? [y/N] "))
+            return true;
+
+        auto cleaned = 0;
+        for (const auto & rec : expired) {
+            if (this->cleanOne(rec, false))
+                ++cleaned;
         }
 
         std::fprintf(stdout, "adrm: cleaned %d expired file(s)\n", cleaned);
@@ -441,24 +524,44 @@ namespace adrm {
         auto where = buildWhereClause(fc);
         auto actual_limit = buildLimitClause(fc, limit);
 
+        std::string order_by = buildOrderByClause(args.sort_specs);
+
         std::vector<FileRecord> records;
-        if (!this->_m_db.queryBySQL(where, actual_limit, records))
+        if (!this->_m_db.queryBySQL(where, actual_limit, order_by, records))
             return false;
 
-        this->printRecords(records, false);
+        this->printRecords(records, false, args.flag_color);
         return true;
     }
 
-    auto TrashOps::queryAllRecords() -> bool {
+    auto TrashOps::queryAllRecords(const ParsedArgs & args) -> bool {
+        std::string order_by = buildOrderByClause(args.sort_specs);
+
         std::vector<FileRecord> records;
-        if (!this->_m_db.queryAll(records))
+        if (!this->_m_db.queryBySQL("", 0, order_by, records))
             return false;
 
-        this->printRecords(records, true);
+        this->printRecords(records, true, args.flag_color);
         return true;
     }
 
-    auto TrashOps::printRecords(const std::vector<FileRecord> & records, bool full) const -> void {
+    static auto colorForStatus(FileStatus status) -> const char * {
+        switch (status) {
+        case FileStatus::recycled:
+            return "\033[34m";
+        case FileStatus::restored:
+            return "\033[32m";
+        case FileStatus::cleaned:
+            return "\033[33m";
+        case FileStatus::exception:
+            return "\033[31m";
+        }
+        return "";
+    }
+
+    static const char * COLOR_RESET = "\033[0m";
+
+    auto TrashOps::printRecords(const std::vector<FileRecord> & records, bool full, bool color) -> void {
         if (records.empty()) {
             std::fprintf(stdout, "adrm: no records found\n");
             return;
@@ -474,7 +577,6 @@ namespace adrm {
             columns = this->_m_config.query_columns;
         }
 
-        // Find column widths
         std::vector<std::size_t> widths(columns.size());
         for (std::size_t c = 0; c < columns.size(); ++c)
             widths[c] = columns[c].size();
@@ -521,7 +623,6 @@ namespace adrm {
             rows.push_back(row);
         }
 
-        // Print header
         for (std::size_t c = 0; c < columns.size(); ++c) {
             if (c > 0)
                 std::fprintf(stdout, "  ");
@@ -529,7 +630,6 @@ namespace adrm {
         }
         std::fprintf(stdout, "\n");
 
-        // Print separator
         for (std::size_t c = 0; c < columns.size(); ++c) {
             if (c > 0)
                 std::fprintf(stdout, "  ");
@@ -538,20 +638,45 @@ namespace adrm {
         }
         std::fprintf(stdout, "\n");
 
-        // Print rows
-        for (const auto & row : rows) {
+        for (std::size_t r = 0; r < rows.size(); ++r) {
+            const auto & row = rows[r];
+            auto row_color = color ? colorForStatus(records[r].status) : "";
+            auto reset = (color && row_color[0] != '\0') ? COLOR_RESET : "";
+
             for (std::size_t c = 0; c < row.size(); ++c) {
                 if (c > 0)
                     std::fprintf(stdout, "  ");
-                std::fprintf(stdout, "%-*s", static_cast<int>(widths[c]), row[c].c_str());
+                if (color && columns[c] == "status" && row_color[0] != '\0')
+                    std::fprintf(stdout, "%s%-*s%s", row_color, static_cast<int>(widths[c]), row[c].c_str(), reset);
+                else
+                    std::fprintf(stdout, "%-*s", static_cast<int>(widths[c]), row[c].c_str());
             }
             std::fprintf(stdout, "\n");
         }
-
     }
 
     auto TrashOps::resetDatabase() -> bool {
-        return this->_m_db.resetDatabase();
+        if (this->_m_db.hasRecycledFiles()) {
+            std::fprintf(stdout, "adrm: there are still files with 'recycled' status:\n");
+
+            std::vector<FileRecord> records;
+            (void)this->_m_db.queryBySQL("status = 'recycled'", 0, records);
+            this->printRecords(records, false, false);
+
+            if (!askYesNo("adrm: clean all recycled files and reset database? [y/N] "))
+                return false;
+
+            for (const auto & rec : records)
+                this->cleanOne(rec, false);
+        }
+
+        if (!this->_m_db.resetDatabase()) {
+            std::fprintf(stderr, "adrm: failed to reset database\n");
+            return false;
+        }
+
+        std::fprintf(stdout, "adrm: database has been reset\n");
+        return true;
     }
 
 

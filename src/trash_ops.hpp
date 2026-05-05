@@ -1,12 +1,11 @@
 
 /**
  * @file:       trash_ops.hpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
- * @date:       2026-04-30
+ * @author:     GLM-5.1-OpenCode
+ * @date:       2026-05-05
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -66,7 +65,7 @@ namespace adrm {
 
         auto queryRecords(const ParsedArgs & args) -> bool;
 
-        auto queryAllRecords() -> bool;
+        auto queryAllRecords(const ParsedArgs & args) -> bool;
 
         auto resetDatabase() -> bool;
 
@@ -74,13 +73,14 @@ namespace adrm {
         Config _m_config;
         Database _m_db;
 
-        auto recycleOne(const FileWithDuration & fwd, bool force, bool recursive, bool verbose) -> bool;
+        auto recycleOne(const FileWithDuration & fwd, bool force, bool recursive,
+                        bool allow_empty_dir, bool verbose) -> bool;
 
         auto restoreOne(const FileRecord & record, bool verbose) -> bool;
 
         auto cleanOne(const FileRecord & record, bool verbose) -> bool;
 
-        auto printRecords(const std::vector<FileRecord> & records, bool full) const -> void;
+        auto printRecords(const std::vector<FileRecord> & records, bool full, bool color) -> void;
 
         [[nodiscard]] auto computeDeadline(const FileWithDuration & fwd) const -> std::string;
     };

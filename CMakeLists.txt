@@ -1,11 +1,10 @@
 
 # @file:       CMakeLists.txt
-# @author:     WubinWang
-# @contact:    wubinstu@163.com
-# @date:       2026-01-01
+# @author:     GLM-5.1-OpenCode
+# @date:       2026-05-05
 # @license:    MIT License
 #
-# Copyright (c) 2026 WubinWang
+# Copyright (c) 2026 GLM-5.1-OpenCode
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -37,7 +36,7 @@ cmake_minimum_required(VERSION 3.7...3.27)
 
 project(adrm
         DESCRIPTION "Advance Remover"
-        VERSION 1.0.0
+        VERSION 1.1.0
         LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

@@ -1,11 +1,10 @@
 /**
  * @file:       filter.cpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
- * @date:       2026-04-30
+ * @author:     GLM-5.1-OpenCode
+ * @date:       2026-05-05
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -105,11 +104,11 @@ namespace adrm {
             if (arg == "--id" && i + 1 < args.size()) {
                 ++i;
                 const auto & val = args[i];
-                if (val[0] == '+') {
+                if (!val.empty() && val[0] == '+') {
                     fc.has_id_min = true;
                     fc.id_min = std::atoll(val.c_str() + 1);
                 }
-                else if (val[0] == '-') {
+                else if (!val.empty() && val[0] == '-') {
                     fc.has_id_max = true;
                     fc.id_max = std::atoll(val.c_str() + 1);
                 }
@@ -209,6 +208,42 @@ namespace adrm {
         if (fc.has_items && fc.items > 0)
             return fc.items;
         return default_limit;
+    }
+
+    auto sortFieldToColumn(const std::string & field) -> std::string {
+        if (field == "id")
+            return "id";
+        if (field == "fname")
+            return "original_path";
+        if (field == "fdate")
+            return "original_mtime";
+        if (field == "fsize")
+            return "original_size_bytes";
+        if (field == "rdate")
+            return "recycle_time";
+        if (field == "cdate")
+            return "cleanup_time";
+        if (field == "state")
+            return "status";
+        return "id";
+    }
+
+    auto buildOrderByClause(const std::vector<SortSpec> & sort_specs) -> std::string {
+        if (sort_specs.empty())
+            return "";
+
+        std::string order_by;
+        for (std::size_t i = 0; i < sort_specs.size(); ++i) {
+            if (i > 0)
+                order_by += ", ";
+            order_by += sortFieldToColumn(sort_specs[i].field);
+            if (sort_specs[i].direction == SortDirection::desc)
+                order_by += " DESC";
+            else
+                order_by += " ASC";
+        }
+
+        return order_by;
     }
 
 

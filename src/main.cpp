@@ -1,12 +1,11 @@
 
 /**
  * @file:       main.cpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
- * @date:       2026-04-30
+ * @author:     GLM-5.1-OpenCode
+ * @date:       2026-05-05
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -45,7 +44,7 @@ auto main(int argc, char * argv[]) -> int {
 
     if (args.mode == adrm::OperationMode::help) {
         adrm::printHelp();
-        return 0;
+        return 1;
     }
 
     if (args.mode == adrm::OperationMode::version) {
@@ -73,7 +72,7 @@ auto main(int argc, char * argv[]) -> int {
         return ops.recycleFiles(args) ? 0 : 1;
 
     case adrm::OperationMode::query_all:
-        return ops.queryAllRecords() ? 0 : 1;
+        return ops.queryAllRecords(args) ? 0 : 1;
 
     case adrm::OperationMode::query:
         return ops.queryRecords(args) ? 0 : 1;
@@ -98,6 +97,6 @@ auto main(int argc, char * argv[]) -> int {
 
     default:
         adrm::printHelp();
-        return 0;
+        return 1;
     }
 }

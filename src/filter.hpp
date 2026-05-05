@@ -1,12 +1,11 @@
 
 /**
  * @file:       filter.hpp
- * @author:     WubinWang
- * @contact:    wubinstu@163.com
- * @date:       2026-04-30
+ * @author:     GLM-5.1-OpenCode
+ * @date:       2026-05-05
  * @license:    MIT License
  *
- * Copyright (c) 2026 WubinWang
+ * Copyright (c) 2026 GLM-5.1-OpenCode
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -38,6 +37,8 @@
 #ifndef ADRM_FILTER_HPP_
 #define ADRM_FILTER_HPP_
 
+#include "cli.hpp"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -68,11 +69,16 @@ namespace adrm {
         std::string state;
     };
 
-    [[nodiscard]] auto parseFilterArgs(const std::vector<std::string> & args, std::int64_t default_limit) -> FilterConditions;
+    [[nodiscard]] auto parseFilterArgs(const std::vector<std::string> & args,
+                                       std::int64_t default_limit) -> FilterConditions;
 
     [[nodiscard]] auto buildWhereClause(const FilterConditions & fc) -> std::string;
 
     [[nodiscard]] auto buildLimitClause(const FilterConditions & fc, std::int64_t default_limit) -> std::int64_t;
+
+    [[nodiscard]] auto buildOrderByClause(const std::vector<SortSpec> & sort_specs) -> std::string;
+
+    [[nodiscard]] auto sortFieldToColumn(const std::string & field) -> std::string;
 
 
 } // namespace adrm
