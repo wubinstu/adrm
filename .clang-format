@@ -1,0 +1,26 @@
+BasedOnStyle: Microsoft
+Language: Cpp
+AccessModifierOffset: -2
+AlignOperands: Align
+AllowShortFunctionsOnASingleLine: All
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterControlStatement: Never
+  AfterFunction: false
+  AfterNamespace: false
+  AfterClass: false
+  AfterStruct: false
+ColumnLimit: 0
+IndentWidth: 4
+NamespaceIndentation: All
+PointerAlignment: Middle
+ReferenceAlignment: Middle
+SpaceBeforeParens: ControlStatements
+SpaceBeforeCpp11BracedList: true
+SpaceBeforeCtorInitializerColon: true
+UseTab: Never
+SortIncludes: CaseInsensitive
+InsertNewlineAtEOF: true
+SeparateDefinitionBlocks: Always
+MaxEmptyLinesToKeep: 2
+Standard: Auto

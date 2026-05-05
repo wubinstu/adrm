@@ -1,0 +1,31 @@
+
+# 代码诊断
+Diagnostics:
+  # 启用 Include Cleaner 的未使用包含诊断可能的值: None, Strict (自 clangd 17 起为默认值)
+  UnusedIncludes: Strict
+
+# 启用头文件符号导航
+Index:
+
+  # 是否急切地为标准库编制索引 (以在空文件上提供标准库符号的代码完成)
+  StandardLibrary: true
+
+  # 是否在后台生成文件以生成项目索引
+  # 仅针对翻译单元进行检查, 而不针对它们包含的标头进行检查
+  # 合法值为 Build (默认值)或 Skip
+  Background: Build
+
+
+# 悬停卡片
+Hover:
+  ShowAKA: true  # 控制脱糖类型(语法糖)打印的布尔值
+
+
+# 嵌体提示
+InlayHints:
+  Enabled: false       # 功能开启
+  ParameterNames: true # 函数参数提示
+  DeducedTypes: true   # 推导类型的提示
+  Designators: true    # 聚合初始化中的提示
+  BlockEnd: false      # 结束注释的提示
+  TypeNameLimit: 24    # 类型提示的字符限制, 不会显示更长的提示, 0表示无限制

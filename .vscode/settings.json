@@ -1,0 +1,10 @@
+{
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "C_Cpp.autocomplete": "default",
+    "C_Cpp.codeFolding": "enabled",
+    "C_Cpp.enhancedColorization": "enabled",
+    "C_Cpp.vcpkg.enabled": true,
+    "C_Cpp.formatting": "clangFormat",
+    "C_Cpp.clang_format_style": "file",
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+}
