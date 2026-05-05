@@ -19,7 +19,15 @@ A safe alternative to `/bin/rm` that moves files to a trash directory instead of
 ### Quick install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh > /tmp/adrm_install.sh && sh /tmp/adrm_install.sh
+curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh > /tmp/adrm_install.sh && bash /tmp/adrm_install.sh
+```
+
+### Common install
+```bash
+1.download binary file from release or clone & build this repo
+2.copy the binary file to such as ~/.local/bin
+3.set ENV ADRM_HOME=~/.adrm/
+4.set alias rm="~/.local/bin/adrm"
 ```
 
 The installer will ask for:

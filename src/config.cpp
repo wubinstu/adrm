@@ -102,9 +102,9 @@ namespace adrm {
         Config cfg;
         cfg.home_dir = getAdrmHome();
         cfg.config_file = cfg.home_dir + "/config";
-        cfg.ignore_file = "ignore";
-        cfg.database_file = "files.db";
-        cfg.trash_dir = "trash";
+        cfg.ignore_file = cfg.home_dir + "/ignore";
+        cfg.database_file = cfg.home_dir + "/files.db";
+        cfg.trash_dir = cfg.home_dir + "/trash";
         cfg.default_cleanup_days = 30;
         cfg.query_default_limit = 10;
         cfg.query_columns = {"id", "original_path", "original_size", "recycle_time", "cleanup_time", "status"};

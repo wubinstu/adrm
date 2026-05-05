@@ -36,7 +36,7 @@ cmake_minimum_required(VERSION 3.7...3.27)
 
 project(adrm
         DESCRIPTION "Advance Remover"
-        VERSION 1.1.1
+        VERSION 1.1.2
         LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
