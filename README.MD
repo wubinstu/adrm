@@ -12,28 +12,69 @@ A safe alternative to `/bin/rm` that moves files to a trash directory instead of
 - **Permission preservation**: Restores original permissions, ownership, and timestamps (including suid/setgid/sticky bits)
 - **Ignore rules**: gitignore-style patterns to skip certain files
 - **Colored output**: Visual status indicators in query results
+- **Shell completion**: Bash and zsh tab-completion for all options
 - **Configurable**: Config file, custom home directory, customizable query columns
 
 ## Install
 
-### Quick install
+### Quick install (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh > /tmp/adrm_install.sh && bash /tmp/adrm_install.sh
+curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh > /tmp/adrm_install.sh && bash /tmp/adrm_install.sh && /bin/rm /tmp/adrm_install.sh
 ```
 
-### Common install
+The installer will:
+1. Download the `adrm` binary to your chosen location (default: `~/.local/bin`)
+2. Download the completion script to `$ADRM_HOME/adrm-completion.bash`
+3. Generate `$ADRM_HOME/adrm-init.sh` with `ADRM_HOME`, `rm` alias, and completion sourcing
+4. Add a `source "$ADRM_HOME/adrm-init.sh"` line to your `~/.bashrc` or `~/.zshrc`
+5. Auto-run `adrm --default` if no config file exists
+
+After installation, open a new shell or run `source ~/.bashrc` (or `~/.zshrc`).
+
+### Manual install
+
 ```bash
-1.download binary file from release or clone & build this repo
-2.copy the binary file to such as ~/.local/bin
-3.set ENV ADRM_HOME=~/.adrm/
-4.set alias rm="~/.local/bin/adrm"
+# 1. Download binary from GitHub Releases and place it in your PATH
+cp adrm-linux-x86_64 ~/.local/bin/adrm
+chmod +x ~/.local/bin/adrm
+
+# 2. Create adrm home directory
+mkdir -p ~/.adrm
+
+# 3. Download completion script
+curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/adrm-completion.bash \
+    -o ~/.adrm/adrm-completion.bash
+
+# 4. Add to your ~/.bashrc (or ~/.zshrc):
+export ADRM_HOME="$HOME/.adrm"
+alias rm="$HOME/.local/bin/adrm"
+source "$HOME/.adrm/adrm-completion.bash"
+
+# 5. Generate default config
+adrm --default
 ```
 
-The installer will ask for:
-1. Binary install location (default: `~/.local/bin`)
-2. adrm home directory (default: `~/.adrm/`)
-3. Whether to create a `rm` alias in your shell config
+### Local install with direnv
+
+You can restrict adrm to a specific project directory using [direnv](https://direnv.net/). This way `rm` is only overridden inside that project:
+
+```bash
+# Inside your project directory:
+cd /path/to/my-project
+
+# Create .envrc
+cat > .envrc << 'EOF'
+export ADRM_HOME="$PWD/.adrm"
+alias rm="/path/to/adrm"
+source "/path/to/adrm-completion.bash"
+EOF
+
+# Allow direnv to load it
+direnv allow
+```
+
+Now when you enter the project directory, `rm` is aliased to `adrm` with a project-local trash. When you leave, the original `rm` is restored. All recycled files are stored in `<project>/.adrm/` and tracked in `<project>/.adrm/files.db`.
 
 ### Build from source
 
@@ -47,6 +88,13 @@ sudo cmake --install .
 **Dependencies**: CMake 3.14+, GCC 12+ (C++23), SQLite3 development library.
 
 On Debian/Ubuntu: `sudo apt install cmake g++ libsqlite3-dev`
+
+### Uninstall
+
+1. Delete the binary: `/bin/rm -f ~/.local/bin/adrm`
+2. Delete the adrm home directory (contains database and trash — **verify no needed files remain**): `/bin/rm -rf ~/.adrm`
+3. Remove the `# >>> adrm >>>` ... `# <<< adrm <<<` block from `~/.bashrc` or `~/.zshrc`
+4. Start a new shell
 
 ## Quick Start
 
@@ -65,13 +113,29 @@ adrm --deadline "2027-01-01" myfile.txt  # absolute deadline
 # Recycle directory recursively
 adrm -r mydir/
 
-# Recycle multiple files with different durations
+# Recycle multiple files with different durations (right-associative)
 adrm +3d file1 file2 +7d file3   # file1,2: 3 days; file3: 7 days
 
 # Interactive mode
 adrm -i file1 file2              # prompt for each file
 adrm -I file1 file2 file3 file4  # prompt once if >3 files
 
+# Force: ignore nonexistent files and ignore rules
+adrm -f file1
+
+# Handle filenames starting with -
+adrm -- -file_with_dash
+
+# Remove empty directories
+adrm -d emptydir/
+
+# Verbose output
+adrm -v file1 file2
+```
+
+## Query / Restore / Clean
+
+```bash
 # Query records
 adrm --query                     # recent 10 records
 adrm --query-all                 # all records
@@ -79,24 +143,20 @@ adrm --query --state recycled    # only recycled files
 adrm --query --fname "test"      # name contains "test"
 adrm --query --fsize +1g         # files larger than 1GB
 adrm --query --sort-asc id       # sort by id ascending
+adrm --query --sort-des fsize --sort-asc id  # multi-field sort
 adrm --query --color             # colored output
 
 # Restore files
 adrm --restore                   # restore most recent file
 adrm --restore --id 5            # restore by ID
 adrm --restore --fname "test"    # restore by name pattern
-adrm --restore-all               # restore all
+adrm --restore-all               # restore all recycled files
 
-# Clean files (permanently delete)
+# Permanently delete (clean)
 adrm --clean                     # clean most recent file
 adrm --clean --id 5              # clean by ID
 adrm --clean-all                 # clean all recycled files
-adrm --clear                     # clean all expired files
-
-# Other
-adrm --reset-db                  # reset database
-adrm -f nonexistent              # force, skip missing files
-adrm -- -file_with_dash          # handle filenames starting with -
+adrm --clear                     # clean all expired files (interactive)
 ```
 
 ## Command-Line Options
@@ -124,23 +184,35 @@ adrm +3d file1 file2 +7d file3
 
 Duration format: `+NdNhNmNs` (e.g., `+3d12h30m`, `+1s`, `+5m`)
 
+Available units: `d` (days), `h` (hours), `m` (minutes), `s` (seconds). No months or years — use `+730d` for approximately 2 years, or `--deadline` for exact dates.
+
+Trailing duration without files after it is an error.
+
 Absolute deadline: `--deadline "YYYY-MM-DD HH:MM:SS"` (time part optional, supports `/` and `_` separators)
 
+```
+--deadline "2027-01-01"
+--deadline "2027/01/01 03:45"
+--deadline "2027_01_01 03:45:01"
+```
+
 Default cleanup: 30 days (configurable in `~/.adrm/config`).
+
+No daemon runs in the background — expired files are only cleaned when you run `adrm --clear`.
 
 ### Operations
 
 | Command | Description |
 |---------|-------------|
-| `--query` | Show recent records (default 10) |
-| `--query-all` | Show all records |
-| `--restore` | Restore most recent recycled file |
+| `--query` | Show recent records (default 10). Accepts filters and sort options. |
+| `--query-all` | Show all records. Accepts filters and sort options. |
+| `--restore` | Restore the most recent recycled file. Accepts filters. |
 | `--restore-all` | Restore all recycled files |
-| `--clean` | Permanently delete most recent recycled file |
+| `--clean` | Permanently delete the most recent recycled file. Accepts filters. |
 | `--clean-all` | Permanently delete all recycled files |
-| `--clear` | Clean all expired files (interactive confirmation) |
-| `--reset-db` | Reset the database |
-| `--default` | Generate default configuration |
+| `--clear` | Clean all expired files (with interactive confirmation if any exist) |
+| `--reset-db` | Reset the database (only if no recycled files remain) |
+| `--default` | Generate default configuration file |
 | `--help` | Show help |
 | `--version` | Show version |
 
@@ -151,7 +223,7 @@ Default cleanup: 30 days (configurable in `~/.adrm/config`).
 | `--id N` | `--id 10` | Exact ID match |
 | `--id +N` | `--id +10` | ID >= 10 |
 | `--id -N` | `--id -10` | ID <= 10 |
-| `--items N` | `--items 20` | Limit to N records |
+| `--items N` | `--items 20` | Limit to N most recent records |
 | `--fname PAT` | `--fname "test"` | Name contains pattern (case-insensitive) |
 | `--fdate DUR` | `--fdate +30d` | File modification date filter |
 | `--fsize SPEC` | `--fsize +1g` | File size filter |
@@ -161,7 +233,12 @@ Default cleanup: 30 days (configurable in `~/.adrm/config`).
 
 Size format: `NgNmNkNb` with `+`/`-` prefix (e.g., `+1g`, `-10m50b`, `10t20g30m40k50b`)
 
-Filters combine with logical AND: `--state recycled --fsize -1g --id +5`
+Filters combine with logical AND:
+
+```bash
+adrm --query --state recycled --fsize -1g --id +5
+# Shows records that are recycled AND <=1GB AND ID>=5
+```
 
 ### Sort options (for --query, --query-all)
 
@@ -169,11 +246,21 @@ Filters combine with logical AND: `--state recycled --fsize -1g --id +5`
 |--------|-------------|
 | `--sort-asc FIELD` | Sort ascending |
 | `--sort-des FIELD` | Sort descending |
-| `--color` | Colorize status column |
 
 Fields: `id`, `fname`, `fdate`, `fsize`, `rdate`, `cdate`, `state`
 
-Multiple sort options supported, applied in order of appearance.
+Multiple sort options supported, applied in order of appearance:
+
+```bash
+adrm --query --sort-asc id --sort-des cdate
+```
+
+### Display options (for --query, --query-all)
+
+| Option | Description |
+|--------|-------------|
+| `--color` | Colorize status column |
+| `--items N` | Limit displayed records |
 
 ### Color legend (with --color)
 
@@ -183,6 +270,23 @@ Multiple sort options supported, applied in order of appearance.
 | restored | Green |
 | cleaned | Yellow |
 | exception | Red |
+
+## Shell Completion
+
+adrm includes bash and zsh tab-completion. The installer sets this up automatically.
+
+For manual setup, source the completion file in your shell config:
+
+```bash
+source "/path/to/adrm-completion.bash"
+```
+
+Completions available:
+- All options: `-f`, `-i`, `-I`, `-r`, `-R`, `-d`, `-v`, `--recursive`, `--color`, `--help`, `--version`, `--default`, `--reset-db`, `--clear`
+- Operations: `--query`, `--query-all`, `--restore`, `--restore-all`, `--clean`, `--clean-all`, `--deadline`
+- Filters: `--id`, `--items`, `--fname`, `--fdate`, `--fsize`, `--rdate`, `--cdate`, `--state`
+- Sort fields (after `--sort-asc`/`--sort-des`): `id`, `fname`, `fdate`, `fsize`, `rdate`, `cdate`, `state`
+- States (after `--state`): `recycled`, `restored`, `cleaned`, `exception`
 
 ## Configuration
 
