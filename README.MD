@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh > /tm
 
 The installer will:
 1. Download the `adrm` binary to your chosen location (default: `~/.local/bin`)
-2. Download the completion script to `$ADRM_HOME/adrm-completion.bash`
+2. Download the completion script to `$ADRM_HOME/adrm-completion.sh`
 3. Generate `$ADRM_HOME/adrm-init.sh` with `ADRM_HOME`, `rm` alias, and completion sourcing
 4. Add a `source "$ADRM_HOME/adrm-init.sh"` line to your `~/.bashrc` or `~/.zshrc`
 5. Auto-run `adrm --default` if no config file exists
@@ -43,21 +43,23 @@ chmod +x ~/.local/bin/adrm
 mkdir -p ~/.adrm
 
 # 3. Download completion script
-curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/adrm-completion.bash \
-    -o ~/.adrm/adrm-completion.bash
+curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/adrm-completion.sh \
+    -o ~/.adrm/adrm-completion.sh
 
 # 4. Add to your ~/.bashrc (or ~/.zshrc):
 export ADRM_HOME="$HOME/.adrm"
 alias rm="$HOME/.local/bin/adrm"
-source "$HOME/.adrm/adrm-completion.bash"
+source "$HOME/.adrm/adrm-completion.sh"
 
 # 5. Generate default config
 adrm --default
 ```
 
-### Local install with direnv
+### Local install (project-scoped)
 
-You can restrict adrm to a specific project directory using [direnv](https://direnv.net/). This way `rm` is only overridden inside that project:
+You can restrict adrm to a specific project directory, so that `rm` is only overridden inside that project. All adrm data — config, database, trash — stays inside the project, making it fully self-contained and portable.
+
+Using [direnv](https://direnv.net/):
 
 ```bash
 # Inside your project directory:
@@ -66,15 +68,33 @@ cd /path/to/my-project
 # Create .envrc
 cat > .envrc << 'EOF'
 export ADRM_HOME="$PWD/.adrm"
-alias rm="/path/to/adrm"
-source "/path/to/adrm-completion.bash"
+alias rm="$(command -v adrm)"
+source "$(command -v adrm-completion.sh 2>/dev/null || echo /path/to/adrm-completion.sh)"
 EOF
 
 # Allow direnv to load it
 direnv allow
 ```
 
-Now when you enter the project directory, `rm` is aliased to `adrm` with a project-local trash. When you leave, the original `rm` is restored. All recycled files are stored in `<project>/.adrm/` and tracked in `<project>/.adrm/files.db`.
+This creates `<project>/.adrm/` containing everything adrm needs:
+
+```
+my-project/
+├── .adrm/
+│   ├── config          # project-specific config
+│   ├── files.db        # project-local database
+│   └── trash/          # project-local trash
+├── .envrc
+└── ...
+```
+
+When you `cd` into the project, `rm` is aliased to `adrm` with all data stored in `<project>/.adrm/`. When you leave, the original `rm` is restored. No global state is affected.
+
+You can also do this without direnv by manually setting the environment in a subshell or script:
+
+```bash
+ADRM_HOME=/path/to/my-project/.adrm alias rm=adrm
+```
 
 ### Build from source
 
@@ -94,7 +114,8 @@ On Debian/Ubuntu: `sudo apt install cmake g++ libsqlite3-dev`
 1. Delete the binary: `/bin/rm -f ~/.local/bin/adrm`
 2. Delete the adrm home directory (contains database and trash — **verify no needed files remain**): `/bin/rm -rf ~/.adrm`
 3. Remove the `# >>> adrm >>>` ... `# <<< adrm <<<` block from `~/.bashrc` or `~/.zshrc`
-4. Start a new shell
+4. The completion script automatically saves the original `rm` completion on load; after removing the source line, `rm` completion reverts to the system default on next shell launch
+5. Start a new shell
 
 ## Quick Start
 
@@ -278,7 +299,7 @@ adrm includes bash and zsh tab-completion. The installer sets this up automatica
 For manual setup, source the completion file in your shell config:
 
 ```bash
-source "/path/to/adrm-completion.bash"
+source "/path/to/adrm-completion.sh"
 ```
 
 Completions available:

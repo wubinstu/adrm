@@ -4,25 +4,18 @@
 # Do NOT edit manually — it will be overwritten on reinstall.
 #
 # If you use adrm without the installer, source it directly:
-#   source "/path/to/adrm-completion.bash"
+#   source "/path/to/adrm-completion.sh"
 
 # --- Bash completion ---
 if [ -n "${BASH_VERSION:-}" ]; then
     _adrm_completions() {
-        local cur prev prev2
+        local cur prev
         COMPREPLY=()
         cur="${COMP_WORDS[COMP_CWORD]}"
         prev="${COMP_WORDS[COMP_CWORD-1]}"
-        if [ "$COMP_CWORD" -ge 2 ]; then
-            prev2="${COMP_WORDS[COMP_CWORD-2]}"
-        else
-            prev2=""
-        fi
 
-        # Global long options that take no argument
         local global_opts="--help --version --default --reset-db --clear --query --query-all --restore --restore-all --clean --clean-all --recursive --color --deadline --sort-asc --sort-des --id --items --fname --fdate --fsize --rdate --cdate --state"
 
-        # If previous word expects a value, provide completions
         case "$prev" in
             --sort-asc|--sort-des)
                 COMPREPLY=($(compgen -W "id fname fdate fsize rdate cdate state" -- "$cur"))
@@ -33,26 +26,27 @@ if [ -n "${BASH_VERSION:-}" ]; then
                 return 0
                 ;;
             --deadline)
-                # Suggest a date template
                 COMPREPLY=($(compgen -W '"YYYY-MM-DD" "YYYY/MM/DD" "YYYY_MM_DD"' -- "$cur"))
                 return 0
                 ;;
             --id|--items|--fname|--fdate|--fsize|--rdate|--cdate)
-                # These need user-supplied values, no generic completion
                 return 0
                 ;;
         esac
 
-        # Otherwise complete with options or filenames
         COMPREPLY=($(compgen -W "${global_opts}" -- "$cur"))
         _filedir 2>/dev/null || compgen -f -- "$cur" >/dev/null
     }
+
+    # Save original rm completion so we can restore on uninstall
+    _adrm_orig_rm_complete=$(complete -p rm 2>/dev/null || true)
+
     complete -F _adrm_completions adrm
+    complete -F _adrm_completions rm
 fi
 
 # --- Zsh completion ---
 if [ -n "${ZSH_VERSION:-}" ]; then
-    # Register for both 'adrm' and 'rm' (when aliased)
     _adrm_zsh() {
         local -a commands opts filters sort_fields state_vals
 
@@ -107,5 +101,5 @@ if [ -n "${ZSH_VERSION:-}" ]; then
             '*:file:_files'
     }
 
-    compdef _adrm_zsh adrm
+    compdef _adrm_zsh adrm rm
 fi

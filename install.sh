@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 REPO="wubinstu/adrm"
-COMPLETION_URL="https://raw.githubusercontent.com/${REPO}/main/adrm-completion.bash"
+COMPLETION_URL="https://raw.githubusercontent.com/${REPO}/main/adrm-completion.sh"
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -60,8 +60,8 @@ echo "Downloaded to ${INSTALL_DIR}/adrm"
 mkdir -p "${ADRM_HOME}"
 
 echo "Downloading completion script..."
-curl -fsSL "$COMPLETION_URL" -o "${ADRM_HOME}/adrm-completion.bash"
-echo "Downloaded to ${ADRM_HOME}/adrm-completion.bash"
+curl -fsSL "$COMPLETION_URL" -o "${ADRM_HOME}/adrm-completion.sh"
+echo "Downloaded to ${ADRM_HOME}/adrm-completion.sh"
 
 # Generate a per-installation completion file with correct paths
 COMPLETION_FILE="${ADRM_HOME}/adrm-init.sh"
@@ -73,7 +73,7 @@ export ADRM_HOME="${ADRM_HOME}"
 alias rm="${INSTALL_DIR}/adrm"
 
 if [ -n "\${BASH_VERSION:-}" ] || [ -n "\${ZSH_VERSION:-}" ]; then
-    source "${ADRM_HOME}/adrm-completion.bash"
+    source "${ADRM_HOME}/adrm-completion.sh"
 fi
 ADRMEOF
 
@@ -117,7 +117,7 @@ echo "adrm installed successfully!"
 echo ""
 echo "  Binary:     ${INSTALL_DIR}/adrm"
 echo "  Home:       ${ADRM_HOME}"
-echo "  Completion: ${ADRM_HOME}/adrm-completion.bash"
+echo "  Completion: ${ADRM_HOME}/adrm-completion.sh"
 echo "  Init:       ${COMPLETION_FILE}"
 echo "  Config:     ${SHELL_RC:-<not modified>}"
 echo ""
