@@ -302,12 +302,15 @@ For manual setup, source the completion file in your shell config:
 source "/path/to/adrm-completion.sh"
 ```
 
-Completions available:
-- All options: `-f`, `-i`, `-I`, `-r`, `-R`, `-d`, `-v`, `--recursive`, `--color`, `--help`, `--version`, `--default`, `--reset-db`, `--clear`
-- Operations: `--query`, `--query-all`, `--restore`, `--restore-all`, `--clean`, `--clean-all`, `--deadline`
-- Filters: `--id`, `--items`, `--fname`, `--fdate`, `--fsize`, `--rdate`, `--cdate`, `--state`
-- Sort fields (after `--sort-asc`/`--sort-des`): `id`, `fname`, `fdate`, `fsize`, `rdate`, `cdate`, `state`
-- States (after `--state`): `recycled`, `restored`, `cleaned`, `exception`
+**Completion behavior:**
+
+- `rm file<TAB>` / `adrm file<TAB>` — completes filenames only
+- `rm -<TAB>` / `adrm -<TAB>` — completes short and long options (`-f`, `-i`, `-I`, `-r`, `-R`, `-d`, `-v`, `--help`, `--query`, ...)
+- `rm --sort-asc <TAB>` — completes sort fields (`id`, `fname`, `fdate`, `fsize`, `rdate`, `cdate`, `state`)
+- `rm --state <TAB>` — completes states (`recycled`, `restored`, `cleaned`, `exception`)
+- `/bin/rm <TAB>` — falls back to the system default `rm` completion (not adrm)
+
+The original `rm` completion is saved on load. After uninstalling (removing the source line), `rm` reverts to the system default on next shell launch.
 
 ## Configuration
 
