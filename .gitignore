@@ -1,57 +1,17 @@
-# Prerequisites
-*.d
+# Binaries
+/adrm
 
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
+# Go build
+*.test
 
-# Linker output
-*.ilk
-*.map
-*.exp
+# Adrm user data (in case someone puts home in repo)
+/.adrm/
 
-# Precompiled Headers
-*.gch
-*.pch
+# build output
+/dist/
+/adrm
+*.test
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
-
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
-
-
-/build
-/test
-.cache
+# editor / harness
+.stepcode/
+.vscode/
