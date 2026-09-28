@@ -186,18 +186,19 @@ func rcBlock(prof shellProfile, home string, wantAlias, wantCompletion bool) str
 			fmt.Fprintf(&b, "test -f %q; and source %q\n", fish, fish)
 		}
 	} else {
+		// POSIX shells (bash/zsh): "[ -r f ] && . f" -- never fish's "; and".
 		fmt.Fprintf(&b, "export ADRM_HOME=%q\n", home)
 		init := filepath.Join(home, "adrm-init.sh")
-		fmt.Fprintf(&b, "test -r %q; and . %q\n", init, init)
+		fmt.Fprintf(&b, "[ -r %q ] && . %q\n", init, init)
 		if wantCompletion {
 			switch prof.Shell {
 			case "zsh":
 				zsh := filepath.Join(home, "completions", complete.FileName("zsh"))
 				fmt.Fprintf(&b, "(( $+functions[compdef] )) || { autoload -Uz compinit && compinit -u }\n")
-				fmt.Fprintf(&b, "test -r %q; and . %q\n", zsh, zsh)
+				fmt.Fprintf(&b, "[ -r %q ] && . %q\n", zsh, zsh)
 			default:
 				bash := filepath.Join(home, "completions", complete.FileName("bash"))
-				fmt.Fprintf(&b, "test -r %q; and . %q\n", bash, bash)
+				fmt.Fprintf(&b, "[ -r %q ] && . %q\n", bash, bash)
 			}
 		}
 	}

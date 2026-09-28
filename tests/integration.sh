@@ -275,6 +275,18 @@ HOME="$fakehome" adrm setup --install --shells bash >/dev/null 2>&1
 grep -q "ADRM_HOME" "$fakehome/.bashrc" && ok "rc updated" || bad "rc not updated"
 [ -f "$ADRM_HOME/completions/adrm.bash" ] && ok "completion installed" || bad "completion missing"
 [ -f "$ADRM_HOME/adrm-init.sh" ] && ok "init script installed" || bad "init script missing"
+# the generated block must be valid POSIX bash and work when sourced
+bash -n "$fakehome/.bashrc" 2>/dev/null
+bashrc_out=$(bash -c "
+export ADRM_ADRM_BIN='$ADRM_BIN'
+set -e
+. $fakehome/.bashrc
+[ \"\$ADRM_HOME\" = '$ADRM_HOME' ] || { echo BADHOME; exit 1; }
+alias rm >/dev/null 2>&1 || { echo NOALIAS; exit 1; }
+complete -p adrm >/dev/null 2>&1 || { echo NOCOMPLETE; exit 1; }
+echo SOURCED-OK
+" 2>&1)
+case "$bashrc_out" in *SOURCED-OK*) ok "bashrc block sources cleanly in real bash" ;; *) bad "bashrc block broken: $bashrc_out" ;; esac
 HOME="$fakehome" adrm setup --uninstall >/dev/null 2>&1
 grep -q adrm "$fakehome/.bashrc" && bad "rc not cleaned" || ok "rc cleaned"
 [ ! -e "$ADRM_HOME/completions" ] && ok "completions removed" || bad "completions left behind"

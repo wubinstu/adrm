@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -535,6 +537,59 @@ func TestSetupInstallUninstall(t *testing.T) {
 	if code, out, _ := runCLI(t, home, "setup", "--status"); code != 0 || !strings.Contains(out, "not installed") {
 		t.Errorf("status: %d %q", code, out)
 	}
+}
+
+// TestSetupBlockIsValidBash is the regression test for the fish-syntax leak:
+// the generated rc block must be valid POSIX shell that actually works when
+// sourced by bash (it used to contain "; and ." which bash cannot run).
+func TestSetupBlockIsValidBash(t *testing.T) {
+	home := newSandbox(t)
+	fakeUser := t.TempDir()
+	t.Setenv("HOME", fakeUser)
+	if code, _, _ := runCLI(t, home, "setup", "--install", "--shells", "bash"); code != 0 {
+		t.Fatal("setup --install failed")
+	}
+	rc := filepath.Join(fakeUser, ".bashrc")
+	data, err := os.ReadFile(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := string(data)
+	// 1. the managed block must be syntactically valid bash
+	blockFile := filepath.Join(t.TempDir(), "block.sh")
+	if err := os.WriteFile(blockFile, []byte(block), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("bash", "-n", blockFile).CombinedOutput(); err != nil {
+		t.Fatalf("bash -n rejected the generated block: %v\n%s\n---\n%s", err, out, block)
+	}
+	// 2. sourcing it in a real bash must define everything, silently
+	script := fmt.Sprintf(`export ADRM_ADRM_BIN=%q
+set -e
+. %q
+[ "$ADRM_HOME" = %q ] || { echo "ADRM_HOME not set"; exit 1; }
+alias rm >/dev/null 2>&1 || { echo "rm alias missing"; exit 1; }
+complete -p adrm >/dev/null 2>&1 || { echo "adrm completion missing"; exit 1; }
+echo OK
+`, adrmBinaryForTest(), blockFile, home)
+	out, err := exec.Command("bash", "-c", script).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "OK") {
+		t.Fatalf("sourcing the block failed: %v\n%s", err, out)
+	}
+	// 3. no fish-only syntax may leak into the POSIX block
+	if strings.Contains(block, "; and ") {
+		t.Errorf("fish syntax leaked into the bash block:\n%s", block)
+	}
+}
+
+// adrmBinaryForTest returns the test binary path so the completion scripts
+// call the same code under test.
+func adrmBinaryForTest() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "adrm"
+	}
+	return exe
 }
 
 func TestDBResetSafety(t *testing.T) {
