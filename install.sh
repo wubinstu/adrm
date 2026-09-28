@@ -144,8 +144,16 @@ fi
 INSTALL_DIR="$(expand_tilde "$INSTALL_DIR")"
 ADRM_HOME_DIR="$(expand_tilde "$ADRM_HOME_DIR")"
 
-URL="${BASE_URL%/}/download/${VERSION}/${ARTIFACT}"
-SUMS_URL="${BASE_URL%/}/download/${VERSION}/SHA256SUMS"
+# GitHub has no ".../download/latest/..." path: the "latest" channel lives at
+# ".../releases/latest/download/..." (it redirects to the newest release),
+# while an explicit version uses ".../releases/download/<tag>/...".
+if [ "$VERSION" = "latest" ]; then
+    URL="${BASE_URL%/}/latest/download/${ARTIFACT}"
+    SUMS_URL="${BASE_URL%/}/latest/download/SHA256SUMS"
+else
+    URL="${BASE_URL%/}/download/${VERSION}/${ARTIFACT}"
+    SUMS_URL="${BASE_URL%/}/download/${VERSION}/SHA256SUMS"
+fi
 TMPDIR_INSTALL="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_INSTALL"' EXIT
 
