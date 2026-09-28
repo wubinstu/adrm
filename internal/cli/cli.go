@@ -15,7 +15,10 @@ import (
 	"github.com/wubinstu/adrm/internal/trash"
 )
 
-const version = "2.0.0"
+// version is the adrm version. Release builds override it via
+// -ldflags "-X github.com/wubinstu/adrm/internal/cli.version=<tag>";
+// local builds report "dev".
+var version = "dev"
 
 var subcommands = map[string]bool{
 	"ls": true, "log": true, "restore": true, "undo": true, "purge": true,

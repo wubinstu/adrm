@@ -54,7 +54,9 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -trimpath -ldflags="-s -w" -o dist/${{ matrix.artifact }} .
+          go build -trimpath \
+            -ldflags="-s -w -X github.com/wubinstu/adrm/internal/cli.version=${GITHUB_REF_NAME#v}" \
+            -o dist/${{ matrix.artifact }} .
       - name: Checksum
         run: |
           cd dist
