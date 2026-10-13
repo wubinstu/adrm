@@ -35,35 +35,43 @@ jobs:
           - goos: linux
             goarch: amd64
             bin: adrm
+            path: .
             artifact: adrm-linux-x86_64
           - goos: linux
             goarch: arm64
             bin: adrm
+            path: .
             artifact: adrm-linux-arm64
           - goos: darwin
             goarch: amd64
             bin: adrm
+            path: .
             artifact: adrm-macos-x86_64
           - goos: darwin
             goarch: arm64
             bin: adrm
+            path: .
             artifact: adrm-macos-arm64
           # adrmm: the trash-management face (completes subcommands)
           - goos: linux
             goarch: amd64
             bin: adrmm
+            path: ./cmd/adrmm
             artifact: adrmm-linux-x86_64
           - goos: linux
             goarch: arm64
             bin: adrmm
+            path: ./cmd/adrmm
             artifact: adrmm-linux-arm64
           - goos: darwin
             goarch: amd64
             bin: adrmm
+            path: ./cmd/adrmm
             artifact: adrmm-macos-x86_64
           - goos: darwin
             goarch: arm64
             bin: adrmm
+            path: ./cmd/adrmm
             artifact: adrmm-macos-arm64
     steps:
       - uses: actions/checkout@v4
@@ -79,7 +87,7 @@ jobs:
         run: |
           go build -trimpath \
             -ldflags="-s -w -X github.com/wubinstu/adrm/internal/cli.version=${GITHUB_REF_NAME#v}" \
-            -o dist/${{ matrix.artifact }} ./cmd/${{ matrix.bin }}
+            -o dist/${{ matrix.artifact }} ${{ matrix.path }}
       - name: Checksum
         run: |
           cd dist
