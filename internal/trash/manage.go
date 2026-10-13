@@ -200,7 +200,7 @@ func (e *Engine) GC(opt GCOpts) (int, error) {
 		for _, it := range expired {
 			e.printf("  #%d %s\n", it.ID, it.OrigPath)
 		}
-		if !e.Confirm(i18n.Tr("全部彻底清理这 %d 个过期项?", "permanently delete all %d expired item(s)?"), false) {
+		if !e.Confirm(fmt.Sprintf(i18n.Tr("全部彻底清理这 %d 个过期项?", "permanently delete all %d expired item(s)?"), len(expired)), false) {
 			fmt.Fprint(e.Out, i18n.Tr("已取消。\n", "cancelled.\n"))
 			return 0, nil
 		}

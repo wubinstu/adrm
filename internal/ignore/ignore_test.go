@@ -30,7 +30,7 @@ func TestMatch(t *testing.T) {
 		{"/home/u/secret", true, true},
 		{"/home/u/secret", false, false}, // dir-only rule
 		{"/home/u/x/secret", true, true},
-		{"/anchored.txt", false, true},                // leading "/" = filesystem root
+		{"/anchored.txt", false, true}, // leading "/" = filesystem root
 		{"/home/u/anchored.txt", false, false},
 		{"/home/u/sub/anchored.txt", false, false},
 		{"/home/u/build/out/x.o", false, true},
@@ -39,11 +39,11 @@ func TestMatch(t *testing.T) {
 		{"/home/u/node_modules", true, true},
 		{"/home/u/src/node_modules", true, true},
 		{"/home/u/readme.md", false, false},
-		{"/other/a.tmp", false, true}, // basename rules match anywhere
-		{"/home/u/Downloads/x.iso", false, true},   // relative to $HOME
+		{"/other/a.tmp", false, true},                 // basename rules match anywhere
+		{"/home/u/Downloads/x.iso", false, true},      // relative to $HOME
 		{"/home/u/sub/Downloads/x.iso", false, false}, // not anchored at $HOME root
 		{"/other/y.iso", false, false},
-		{"/var/log/syslog.log", false, true},     // absolute pattern
+		{"/var/log/syslog.log", false, true},        // absolute pattern
 		{"/var/log/nginx/access.log", false, false}, // * does not cross /
 	}
 	for _, c := range cases {

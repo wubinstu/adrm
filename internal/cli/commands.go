@@ -721,10 +721,25 @@ func (a *app) editFile(path string) int {
 
 func (a *app) cmdDB(args []string) int {
 	p := newParser()
-	if err := p.parse(args, concatSpecs(commonSpecs, []optSpec{{long: "reset"}, {long: "yes", short: "y"}})); err != nil {
+	if err := p.parse(args, concatSpecs(commonSpecs, []optSpec{
+		{long: "reset"}, {long: "yes", short: "y"}, {long: "path"},
+	})); err != nil {
 		return a.fail(err)
 	}
-	if p.has("help") || !p.has("reset") {
+	if p.has("help") {
+		a.printHelp([]string{"db"})
+		return 0
+	}
+	// --path is a pure query: no database is opened, so it also works when
+	// the home directory does not exist yet.
+	if p.has("path") {
+		if err := a.applyCommon(p); err != nil {
+			return a.fail(err)
+		}
+		fmt.Fprintln(a.out, a.cfg.Database)
+		return 0
+	}
+	if !p.has("reset") {
 		a.printHelp([]string{"db"})
 		return 0
 	}

@@ -6,64 +6,103 @@ import (
 	"github.com/wubinstu/adrm/internal/i18n"
 )
 
-// usageText is the short usage shown when adrm is invoked without arguments.
-// The English variant is strictly ASCII so it renders on any terminal.
-func usageText() string {
+// usageText is the short usage shown without arguments. The English variants
+// are strictly ASCII so they render on any terminal.
+func (a *app) usageText() string {
+	if a.mode == ModeManage {
+		return i18n.Tr(`adrmm `+version+` - 管理 adrm 回收站
+
+用法 / usage:
+  adrmm <子命令> [选项]
+
+子命令 / commands:
+  ls        列出当前回收站
+  log       操作历史 (只增不改, 类似 git reflog)
+  restore   还原回收项
+  undo      还原最近回收的一项
+  purge     彻底清理
+  gc        清理过期项
+  empty     清空回收站
+  stats     统计信息
+  config    配置文件管理
+  completions   输出 shell 补全脚本
+  setup     shell 集成 / systemd 定时器
+  doctor    自检
+  db        数据库管理
+  help      帮助
+  version   版本
+
+删除文件请用 rm 的安全替代品: adrm <文件...>
+输入 'adrmm help' 查看完整帮助。
+`, `adrmm `+version+` - manage the adrm trash bin
+
+usage:
+  adrmm <command> [options]
+
+commands:
+  ls        list the current trash
+  log       operation history (append-only, like git reflog)
+  restore   restore trashed items
+  undo      restore the most recently recycled item
+  purge     permanently delete items
+  gc        purge expired items
+  empty     empty the trash bin
+  stats     summary statistics
+  config    config file management
+  completions   print shell completion scripts
+  setup     shell integration / systemd timer
+  doctor    self-check
+  db        database management
+  help      help
+  version   version
+
+to delete files use the safer rm: adrm <files...>
+try 'adrmm help' for the full help.
+`)
+	}
 	return i18n.Tr(`adrm `+version+` - 更安全的 rm: 删除即回收, 可随时还原
 
 用法 / usage:
-  adrm [选项] <文件...> [+持续时间|--for 时间|--until 日期]   回收(默认模式)
-  adrm <子命令> [选项]                                       管理回收站
+  adrm [选项] <文件...> [+持续时间|--for 时间|--deadline 日期]
 
-子命令 / commands:
-  ls, log, restore, undo, purge, gc, empty, stats, config,
-  completions, setup, doctor, db, help, version
+删除的文件进入回收站, 用 'adrmm' 管理:
+  adrmm ls          查看回收站
+  adrmm restore 12  还原第 12 项
 
-示例 / examples:
-  adrm report.pdf                回收到回收站
-  adrm -rf old-project/          整体回收目录
-  adrm +7d notes/                7 天后过期
-  adrm ls                        查看回收站
-  adrm restore 12                还原第 12 项
-  adrm purge 1-5                 彻底清理第 1 到 5 项
-
-更多帮助 / more help: 'adrm help'
+输入 'adrm --help' 查看完整帮助, 'adrmm --help' 查看管理命令。
 `, `adrm `+version+` - a safer rm: deletes go to the trash, restorable anytime
 
 usage:
-  adrm [options] <files...> [+dur|--for dur|--until date]   recycle (default mode)
-  adrm <command> [options]                                 manage the trash
+  adrm [options] <files...> [+dur|--for dur|--deadline date]
 
-commands:
-  ls, log, restore, undo, purge, gc, empty, stats, config,
-  completions, setup, doctor, db, help, version
+deleted files go to the trash bin; manage it with 'adrmm':
+  adrmm ls          list the trash
+  adrmm restore 12  restore item 12
 
-examples:
-  adrm report.pdf                recycle a file
-  adrm -rf old-project/          recycle a directory
-  adrm +7d notes/                expire in 7 days
-  adrm ls                        list the trash
-  adrm restore 12                restore item 12
-  adrm purge 1-5                 purge items 1 to 5
-
-more help: 'adrm help'
+try 'adrm --help' for full options, 'adrmm --help' for management commands.
 `)
 }
 
 // helpText is the full help. The English variant is strictly ASCII.
-func helpText() string {
-	return i18n.Tr(`adrm `+version+` - 带回收站功能的 rm 替代品
+func (a *app) helpText() string {
+	if a.mode == ModeManage {
+		return a.manageHelpText()
+	}
+	return a.deleteHelpText()
+}
+
+func (a *app) deleteHelpText() string {
+	return i18n.Tr(`adrm `+version+` - 带回收站功能的 rm 替代品 (删除文件)
 
 概述
   adrm 把 "删除" 变成 "回收": 文件被移动到回收站而不是真正删除,
-  之后可以列出/还原/彻底清理。单个静态可执行文件, 无需守护进程,
-  过期清理是惰性的(运行 gc 或任何命令时顺带进行)。
+  之后用 adrmm 列出/还原/彻底清理。单个静态可执行文件, 无需守护进程。
+  每个用户有独立的 ~/.adrm 主目录。
 
 用法
-  adrm [选项] <文件...> [有效期...]     回收模式(默认, 兼容 rm 参数)
-  adrm <子命令> [选项]                  管理命令
+  adrm [选项] <文件...> [有效期...]
 
-回收模式选项 (rm 兼容)
+选项 (rm 兼容)
   -f, --force          忽略不存在/无提示/无视 ignore 规则
   -i                   逐个询问 (rm 行为)
   -I                   一次回收超过阈值(默认 3 个)时询问一次
@@ -81,66 +120,35 @@ func helpText() string {
 有效期 (向右亲和, 严格校验, 整条命令先校验后执行)
   +6d +20h +1s +5m     持续时间, 可组合如 +3d4h5m; 作用于其后所有文件
   --for 6d             同 +6d
-  --until "2027/1/1 03:45:01"   绝对截止时间 (/ _ - 均可作分隔符)
+  --deadline "2027/1/1 03:45:01"   绝对截止时间 (2027/1/1, 2027_01_01,
+                        2027-1-01 等均可; 也支持 03:45 与 03:45:01)
   未指定则用配置 retention_days (默认 30 天)
   悬空的时间参数会报错, 且任何文件都不会被回收
 
-管理命令
-  ls                列出当前回收站 (过滤/排序/--json/--color)
-  log               操作历史 (只增不改, 类似 git reflog)
-  restore <id...>   还原; --last 最近一个; --all 全部; --replace 冲突时先回收已存在文件; --pick 交互选择
-  undo              还原最近回收的一个 (= restore --last)
-  purge <id...>     彻底清理; --last/--all/--yes
-  gc                清理过期项 (--dry-run/--yes/--quiet)
-  empty             清空回收站 (--yes)
-  stats             统计信息
-  config            --init 生成配置; --show 生效配置; --edit; --path; --validate
-  completions        bash|zsh|fish 输出补全脚本 (--out DIR 写入文件)
-  setup             --install/--uninstall/--status 安装或移除 shell 集成
-  doctor            自检: 数据库/磁盘对账/孤儿文件/权限
-  db                --reset 重置数据库; --path 显示数据库路径
-  help [命令]       帮助
-  version           版本
-
-过滤 (ls/log/restore/purge 通用, 可组合为 AND)
-  <id 列表>          1, 5, 1-20
-  --state recycled|exception     按状态 (ls)
-  --op recycle|restore|purge|expire|exception|reset|empty   按操作 (log)
-  --expired          仅过期项
-  --name PAT         原路径包含 PAT (忽略大小写)
-  --path PREFIX      原路径前缀
-  --older-than D     --newer-than D     按回收时间 (3d4h5m 或绝对日期)
-  --mtime SPEC       按原始修改时间 (+3d 之后, -3d 之前, 无符号=恰好)
-  --size SPEC        按大小 (+1g, -1k, 10g20m)
-  --since D --until D    按操作时间 (log)
-  --last N           最近 N 条
-  --sort field:asc|desc,...   排序 (id/path/size/mtime/recycled/expire/state; log: seq/ts/op/item)
+管理回收站 (另一个二进制)
+  adrmm ls / log / restore / undo / purge / gc / empty / stats /
+        config / completions / setup / doctor / db / help / version
+  输入 'adrmm --help' 查看详情。
 
 配置与环境变量
   ADRM_HOME   主目录 (默认 ~/.adrm)
   ADRM_DB     数据库路径      ADRM_TRASH  回收站目录
   ADRM_CONFIG 配置文件        ADRM_IGNORE 忽略规则文件
   ADRM_LANG   zh|en          ADRM_COLOR  auto|always|never
-  配置文件: $ADRM_HOME/config (key = value, 'adrm config --init' 生成带注释模板)
-
-安装与卸载
-  curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh | bash
-  adrm setup --install      # 装 shell 集成 (alias + 补全)
-  adrm setup --uninstall    # 干净卸载 (只删自己写的内容)
+  配置文件: $ADRM_HOME/config (key = value, 'adrmm config --init' 生成模板)
 
 仓库: https://github.com/wubinstu/adrm
-`, `adrm `+version+` - an rm replacement with a trash bin
+`, `adrm `+version+` - an rm replacement with a trash bin (delete files)
 
 overview
   adrm turns "delete" into "recycle": files move into a trash directory
-  instead of being destroyed, and can be listed, restored or purged later.
-  One static binary, no daemon; expired items are collected lazily.
+  instead of being destroyed, and are managed with the adrmm binary.
+  One static executable, no daemon. Each user has a private ~/.adrm home.
 
 usage
-  adrm [options] <files...> [expiry...]    recycle mode (default, rm-compatible)
-  adrm <command> [options]                 management commands
+  adrm [options] <files...> [expiry...]
 
-recycle mode options (rm compatible)
+options (rm compatible)
   -f, --force          ignore missing files, skip prompts, override ignore rules
   -i                   prompt for each file (rm behavior)
   -I                   prompt once when more than the threshold (3) files are given
@@ -158,12 +166,88 @@ recycle mode options (rm compatible)
 expiry (right-associative, strictly validated, whole command checked first)
   +6d +20h +1s +5m     durations, combinable, e.g. +3d4h5m; applies to all
                        following files until the next expiry argument
-  --for 6d            same as +6d
-  --until "2027/1/1 03:45:01"   absolute deadline (/ _ - separators allowed)
+  --for 6d             same as +6d
+  --deadline "2027/1/1 03:45:01"   absolute deadline (2027/1/1, 2027_01_01,
+                      2027-1-01 and 03:45 / 03:45:01 times all work)
   when omitted, config retention_days (default 30) is used
   a dangling expiry argument is an error and nothing is recycled
 
-management commands
+manage the trash bin (the other binary)
+  adrmm ls / log / restore / undo / purge / gc / empty / stats /
+        config / completions / setup / doctor / db / help / version
+  try 'adrmm --help' for details.
+
+config and environment
+  ADRM_HOME   home directory (default ~/.adrm)
+  ADRM_DB     database file    ADRM_TRASH  trash directory
+  ADRM_CONFIG config file      ADRM_IGNORE ignore rules file
+  ADRM_LANG   zh|en            ADRM_COLOR  auto|always|never
+  config file: $ADRM_HOME/config (key = value; 'adrmm config --init' writes a
+  template)
+
+repo: https://github.com/wubinstu/adrm
+`)
+}
+
+func (a *app) manageHelpText() string {
+	return i18n.Tr(`adrmm `+version+` - 管理 adrm 回收站
+
+概述
+  adrmm 管理 adrm 删除的文件: 列出、还原、彻底清理、统计、配置、
+  shell 集成与自检。删除文件请用 adrm <文件...>。
+
+管理命令
+  ls                列出当前回收站 (过滤/排序/--json/--color)
+  log               操作历史 (只增不改, 类似 git reflog)
+  restore <id...>   还原; --last 最近一个; --all 全部; --replace 冲突时先回收已存在文件; --pick 交互选择
+  undo              还原最近回收的一个 (= restore --last)
+  purge <id...>     彻底清理; --last/--all/--yes
+  gc                清理过期项 (--dry-run/--yes/--quiet)
+  empty             清空回收站 (--yes)
+  stats             统计信息
+  config            --init 生成配置; --show 生效配置; --edit; --path; --validate
+  completions        bash|zsh|fish 输出补全脚本 (--out DIR 写入文件)
+  setup             --install/--uninstall/--status 安装或移除 shell 集成
+                    --alias 安装 rm 别名并接管 rm 补全
+                    --timer 安装 systemd --user 定时清理
+  doctor            自检: 数据库/磁盘对账/孤儿文件/权限
+  db                --reset 重置数据库; --path 显示数据库路径
+  help [命令]       帮助
+  version           版本
+
+过滤 (ls/log/restore/purge 通用, 可组合为 AND)
+  <id 列表>          1, 5, 1-20
+  --state recycled|exception     按状态 (ls)
+  --op recycle|restore|purge|expire|exception|reset|empty   按操作 (log)
+  --expired          仅过期项
+  --name PAT         原路径包含 PAT (忽略大小写)
+  --path PREFIX      原路径前缀
+  --older-than D     --newer-than D     按回收时间 (3d4h5m 或绝对日期)
+  --mtime SPEC       按原始修改时间 (+3d 之后, -3d 之前, 无符号=恰好)
+  --size SPEC        按大小 (+1g, -1k, 10g20m)
+  --since D --deadline D    按操作时间 (log)
+  --last N           最近 N 条
+  --sort field:asc|desc,...   排序 (id/path/size/mtime/recycled/expire/state; log: seq/ts/op/item)
+
+时间参数 (--deadline/--since/--mtime/--older-than 通用)
+  2027/01/01  2027/1/1  2027_01_01  2027-1-01   日期
+  2027/1/1 03:45:01  2027/1/1 03:45  2027/1/1 3:45   日期+时间
+  +3d4h5m / 3d4h5m / +2027/1/1 / -2027_01_01          相对或带方向
+
+配置与环境变量
+  ADRM_HOME   主目录 (默认 ~/.adrm)
+  ADRM_DB     数据库路径      ADRM_TRASH  回收站目录
+  ADRM_CONFIG 配置文件        ADRM_IGNORE 忽略规则文件
+  ADRM_LANG   zh|en          ADRM_COLOR  auto|always|never
+
+仓库: https://github.com/wubinstu/adrm
+`, `adrmm `+version+` - manage the adrm trash bin
+
+overview
+  adrmm manages what adrm deleted: list, restore, purge, statistics, config,
+  shell integration and self-checks. To delete files use: adrm <files...>
+
+commands
   ls                list the current trash (filters/sort/--json/--color)
   log               operation history (append-only, like git reflog)
   restore <id...>   restore; --last latest; --all all; --replace recycles the
@@ -177,6 +261,8 @@ management commands
                     --path; --validate
   completions       bash|zsh|fish scripts (--out DIR writes files)
   setup             --install/--uninstall/--status manage shell integration
+                    --alias install the rm alias and take over rm completion
+                    --timer install a systemd --user cleanup timer
   doctor            self-check: database, disk reconciliation, orphans, perms
   db                --reset clears the database; --path prints its path
   help [command]    help
@@ -192,23 +278,21 @@ filters (shared by ls/log/restore/purge, combined with AND)
   --older-than D --newer-than D   by recycle time (3d4h5m or absolute date)
   --mtime SPEC      by original mtime (+3d after, -3d before, none=exact)
   --size SPEC       by size (+1g, -1k, 10g20m)
-  --since D --until D    by operation time (log)
+  --since D --deadline D   by operation time (log)
   --last N          most recent N entries
   --sort field:asc|desc,...   sort keys (id/path/size/mtime/recycled/expire/
                               state; log: seq/ts/op/item)
+
+time arguments (shared by --deadline/--since/--mtime/--older-than)
+  2027/01/01  2027/1/1  2027_01_01  2027-1-01   dates
+  2027/1/1 03:45:01  2027/1/1 03:45  2027/1/1 3:45   date and time
+  +3d4h5m / 3d4h5m / +2027/1/1 / -2027_01_01          relative or directed
 
 config and environment
   ADRM_HOME   home directory (default ~/.adrm)
   ADRM_DB     database file    ADRM_TRASH  trash directory
   ADRM_CONFIG config file      ADRM_IGNORE ignore rules file
   ADRM_LANG   zh|en            ADRM_COLOR  auto|always|never
-  config file: $ADRM_HOME/config (key = value; 'adrm config --init' writes an
-  annotated template)
-
-install and uninstall
-  curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh | bash
-  adrm setup --install      # shell integration (alias + completion)
-  adrm setup --uninstall    # clean removal (only removes what adrm added)
 
 repo: https://github.com/wubinstu/adrm
 `)
@@ -217,8 +301,13 @@ repo: https://github.com/wubinstu/adrm
 // printHelp prints full help or per-command help.
 func (a *app) printHelp(args []string) {
 	if len(args) > 0 && subcommands[args[0]] {
-		fmt.Fprint(a.out, cmdHelp(args[0]))
+		fmt.Fprint(a.out, a.cmdHelp(args[0]))
 		return
 	}
-	fmt.Fprint(a.out, helpText())
+	fmt.Fprint(a.out, a.helpText())
+}
+
+// printUsage prints the short usage for the current mode.
+func (a *app) printUsage() {
+	fmt.Fprint(a.errw, a.usageText())
 }

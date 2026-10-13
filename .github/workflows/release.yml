@@ -22,6 +22,7 @@ jobs:
       - name: Integration tests
         run: |
           go build -o adrm .
+          go build -o adrmm ./cmd/adrmm
           bash tests/integration.sh
 
   build:
@@ -30,18 +31,40 @@ jobs:
     strategy:
       matrix:
         include:
+          # adrm: the rm-compatible face (completes file paths)
           - goos: linux
             goarch: amd64
+            bin: adrm
             artifact: adrm-linux-x86_64
           - goos: linux
             goarch: arm64
+            bin: adrm
             artifact: adrm-linux-arm64
           - goos: darwin
             goarch: amd64
+            bin: adrm
             artifact: adrm-macos-x86_64
           - goos: darwin
             goarch: arm64
+            bin: adrm
             artifact: adrm-macos-arm64
+          # adrmm: the trash-management face (completes subcommands)
+          - goos: linux
+            goarch: amd64
+            bin: adrmm
+            artifact: adrmm-linux-x86_64
+          - goos: linux
+            goarch: arm64
+            bin: adrmm
+            artifact: adrmm-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            bin: adrmm
+            artifact: adrmm-macos-x86_64
+          - goos: darwin
+            goarch: arm64
+            bin: adrmm
+            artifact: adrmm-macos-arm64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -56,7 +79,7 @@ jobs:
         run: |
           go build -trimpath \
             -ldflags="-s -w -X github.com/wubinstu/adrm/internal/cli.version=${GITHUB_REF_NAME#v}" \
-            -o dist/${{ matrix.artifact }} .
+            -o dist/${{ matrix.artifact }} ./cmd/${{ matrix.bin }}
       - name: Checksum
         run: |
           cd dist
@@ -79,7 +102,7 @@ jobs:
       - name: SHA256SUMS
         run: |
           cd dist
-          sha256sum adrm-* > SHA256SUMS
+          sha256sum adrm-* adrmm-* > SHA256SUMS
           cat SHA256SUMS
       - name: Publish
         env:
@@ -90,7 +113,8 @@ jobs:
             echo "## adrm $TAG"
             echo
             echo "A safer rm: everything you delete goes to a trash bin and can be listed, restored or purged later."
-            echo "One static binary, no daemon. See README.md for the full documentation."
+            echo "Two static binaries, no daemon: adrm deletes, adrmm manages the trash."
+            echo "See README.md for the full documentation."
             echo
             echo "### Install"
             echo

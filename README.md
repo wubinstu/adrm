@@ -1,27 +1,40 @@
 # adrm — 带回收站功能的 rm 替代品
 
-> `rm` 太危险：删掉就没了。adrm 把"删除"变成"回收"——文件被移进回收站，
-> 随时可以列出、还原、彻底清理。单个静态可执行文件，无需守护进程，
-> bash/zsh/fish 补全 + 一键安装 + 干净卸载。
+`adrm` 把「删除」变成「回收」：文件被移进回收站而不是被销毁，之后随时可以查看、还原或彻底清理。
 
-[English](#english) · [安装](#安装) · [快速上手](#快速上手) · [命令参考](#命令参考)
+项目由**两个二进制**组成，分工明确：
+
+| 二进制 | 作用 | 补全行为 |
+|--------|------|----------|
+| `adrm` | 删除文件，参数兼容 `/bin/rm` | 只补全**文件路径**（和 `rm` 一样） |
+| `adrmm` | 管理回收站（查看/还原/清理/配置） | 只补全**子命令**（和 `git` 一样） |
+
+这样 `rm <TAB>` 永远不会和子命令混在一起，两个词表严格分离。
+
+- 单个静态可执行文件，**无守护进程**，纯 Go + 内嵌 SQLite（CGO 关闭，glibc 无关）
+- **每用户独立**：程序运行时自动使用当前用户的 `~/.adrm`，二进制和补全全局唯一
+- MIT 许可证
 
 ---
 
-## 特性
+## 功能总览
 
-- **删除即回收**：`rename` 移动，瞬间完成；跨文件系统自动回退为"复制+删除"并做完整性校验
-- **单文件零守护**：一个完全静态的二进制（纯 Go + 内嵌 SQLite），没有 daemon、没有 cron 依赖
-- **惰性过期**：每个文件可设有效期；过期项只在运行 `adrm gc`（或任何命令顺带 `auto_gc`）时才真正删除
-- **完整还原**：属主/属组/权限位（含 suid/sgid/sticky）/mtime 全部还原；目标冲突时可 `--replace` 先把冲突文件回收
-- **双数据库表**：
-  - `bin` 表——当前回收站里的东西（还原/清理后行即删除，id 全局单调永不复用）
-  - `reflog` 表——像 `git reflog` 一样的操作历史，**只增不改**，哪怕对应文件早已被彻底清理也能翻出记录
-- **强大的查询**：按 id/名字/路径/时间/大小/状态过滤，多字段排序，表格/JSON 输出，可配置列
-- **shell 补全**：bash/zsh/fish 三套内嵌脚本，**动态候选直连数据库**——输 `adrm restore <TAB>` 直接列出回收站里的 id 和文件名
-- **zh/en 双语**：`lang = en` 时所有人类可读输出严格 ASCII（老终端/串口/Windows 默认控制台也能看），`zh` 时使用中文
-- **rm 参数兼容**：`-f -i -I -r -R -d -v --` 以及 rm 的提示/退出码语义
-- **严格校验**：整条命令行先通过验证才执行；悬空的持续时间参数会报错且任何文件都不会被动
+| 功能 | 命令 | 说明 |
+|------|------|------|
+| 回收文件/目录 | `adrm <文件...>` | rm 兼容参数 `-f -i -I -r -R -d -v --`，整条命令先校验后执行 |
+| 设置有效期 | `+3d` / `--for 3d` / `--deadline "2027/1/1"` | 向右亲和；未指定默认 30 天 |
+| 查看回收站 | `adrmm ls` | 表格/JSON，可按名称、大小、时间、状态过滤排序 |
+| 操作历史 | `adrmm log` | 只增不改的流水账（类似 git reflog），文件真删后记录仍在 |
+| 还原 | `adrmm restore` / `adrmm undo` | 还原属主、属组、权限位（含 suid/sgid/sticky）、时间戳 |
+| 彻底清理 | `adrmm purge` / `gc` / `empty` | 单项、按条件、清空、清过期 |
+| 统计 | `adrmm stats` | 当前项数、占用、历史操作计数 |
+| 配置 | `adrmm config --init` | 生成带注释的配置模板 |
+| 补全 | `adrmm completions bash\|zsh\|fish` | 内嵌三种 shell 补全脚本 |
+| 安装集成 | `adrmm setup --install` | 全局补全、可选 rm 别名、可选定时清理 |
+| 自检 | `adrmm doctor` | 数据库完整性、磁盘对账、孤立文件、权限 |
+| 数据库 | `adrmm db --path / --reset` | 位置查询、安全重置 |
+
+---
 
 ## 安装
 
@@ -29,275 +42,744 @@
 curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh | bash
 ```
 
-安装脚本会：
+默认行为（`root` 或 `/usr/bin` 可写时）：
 
-1. 询问二进制安装位置（默认 `~/.local/bin`）、adrm 主目录（默认 `~/.adrm`）、是否创建 `rm` 别名（默认是）
-2. 从 GitHub Releases 下载对应平台的静态二进制并**校验 SHA256**
-3. 调用 `adrm setup --install` 写入 shell 集成（带标记块，卸载时可精确移除）
-4. 生成默认配置并跑一次 `adrm doctor` 自检
+- 两个二进制安装到 `/usr/bin/adrm`、`/usr/bin/adrmm`
+- 补全脚本安装到系统目录（bash/zsh/fish 各自的全局目录），所有用户可用
+- **不**创建 `rm` 别名，`rm` 行为完全不变
+- 每个用户第一次运行时自动创建自己的 `~/.adrm`
 
-> `rm` 别名只作用于交互式 shell，脚本里的 `rm` 仍然是 `/bin/rm`，互不影响。
-> 想用真正的删除：`command rm ...`，或先回收再 `adrm purge`。
-
-**手动安装**：
+可选附加（按需追加参数）：
 
 ```bash
-# 从 Releases 下载对应平台二进制到 PATH
-install -m0755 adrm-linux-x86_64 ~/.local/bin/adrm
-
-adrm setup --install          # shell 集成(别名+补全)
-adrm config --init            # 生成带注释的默认配置
+bash install.sh --alias    # 交互式 shell 里 alias rm=adrm，并接管 rm 的补全
+bash install.sh --timer    # 安装 systemd --user 定时清理（每天一次）
+bash install.sh -y         # 全部使用默认值，不提问
 ```
 
-**卸载**（干净，只删 adrm 自己写的东西）：
+环境变量覆盖：`ADRM_VERSION`（版本）、`ADRM_INSTALL_DIR`（安装目录）、
+`ADRM_HOME`（家目录）、`ADRM_ALIAS`、`ADRM_TIMER`、`ADRM_SHELLS`。
 
-```bash
-adrm setup --uninstall                 # 移除 shell 集成(rc 标记块/补全/init)
-bash install.sh --uninstall            # 连二进制一起删
-bash install.sh --uninstall --purge-home   # 连同回收站数据一起删(二次确认)
-```
+> 想先看看再决定：`bash install.sh --help`
+
+---
 
 ## 快速上手
 
 ```bash
-$ adrm report.pdf                      # 回收一个文件
-recycled '/home/u/report.pdf' (id=1, 2.1M, expires in 30d)
-
-$ adrm -rf old-project/                # 整体回收目录
-$ adrm +7d build.log                   # 7 天后过期
-$ adrm --until "2027/01/01" archive/   # 到 2027-01-01 才过期
-$ adrm ls                              # 看看回收站里有什么
-+----+---------------------------+-------+---------------------+---------------------+---------------------+-------+
- id | path                       | size  | mtime               | recycled            | expires             | left  |
-+----+---------------------------+-------+---------------------+---------------------+---------------------+-------+
-  2 | /home/u/build.log           | 12K   | 2026-05-01 09:12:00 | 2026-05-05 10:00:00 | 2026-05-12 10:00:00 |  7d   |
-  1 | /home/u/report.pdf          | 2.1M  | 2026-04-30 18:44:10 | 2026-05-05 10:00:00 | 2026-06-04 10:00:00 | 30d   |
-+----+---------------------------+-------+---------------------+---------------------+---------------------+-------+
-
-$ adrm undo                            # 还原最近删的一个
-restored '/home/u/build.log' (id=2)
-
-$ adrm restore 1                       # 按 id 还原
-$ adrm purge 1                         # 彻底清理(真删, 不可恢复)
-$ adrm log --name report               # 翻历史记录
+adrm report.pdf
 ```
 
-## 设计取舍（重要）
-
-| 问题 | 决策 | 理由 |
-|---|---|---|
-| 单用户还是多用户？ | **单用户**（可见范围 = 本用户），用 `ADRM_HOME`/`--home` 支持多个独立回收站 | 回收站里是刚删的敏感内容，不该被别人浏览；还原要恢复 uid/gid，共享回收站对非 root 用户必然大量失败 |
-| 单个可执行文件还是守护进程？ | **单文件，零守护进程**，惰性 GC | 守护进程对个人工具是过度设计（休眠/容器/重启全是坑）；截止日期是显式意图，运行命令时顺带清理即可 |
-| 语言 | Go（纯 Go SQLite，CGO 关闭，完全静态） | 单二进制、跨 linux/macOS、供应链干净（唯一依赖是 SQLite 本身） |
-| 旧版接口 | **全部废弃**，v2 全新 CLI | v1 的 `--query/--restore/--clean` 混在 rm 参数里又难记又难补全 |
-
-## 命令参考
-
-### 默认模式：回收（rm 兼容）
-
 ```
-adrm [选项] <文件/目录...> [有效期...]
+已回收 '/home/you/report.pdf' (id=1, 19 B, 30 天后过期)
+没有过期的回收项。
 ```
-
-| 选项 | 说明 |
-|---|---|
-| `-f, --force` | 忽略不存在文件/跳过询问/无视 ignore 规则 |
-| `-i` | 逐个询问（rm 行为） |
-| `-I` | 一次回收超过阈值（默认 3 个）时询问一次 |
-| `-r, -R, --recursive` | 递归回收目录 |
-| `-d, --dir` | 回收空目录 |
-| `-v, --verbose` | 详细输出 |
-| `-y, --yes` | 所有询问默认"是" |
-| `--dry-run` | 只演练不实操 |
-| `--` | 之后一律视为文件名（`adrm -- -file`） |
-| `--preserve-root` / `--no-preserve-root` | 拒绝回收 `/`（默认开启） |
-| `--home PATH`、`--lang zh|en`、`--color MODE` | 全局选项 |
-
-**有效期（向右亲和，严格校验）**：
 
 ```bash
-adrm +6d a b                  # a、b 都 6 天后过期
-adrm a +1d b +2h c            # a 用默认(30天), b 1天, c 2小时
-adrm a +3d4h5m                # 组合单位
-adrm --for 6d a b             # 同 +6d
-adrm --until "2027/1/1 03:45:01" a   # 绝对截止(支持 / _ - 分隔)
-adrm a +2d                    # ❌ 报错: 行尾持续时间没有对应文件, 任何文件都不会被回收
+adrm -r old-project/
 ```
 
-### 管理命令
-
-| 命令 | 说明 |
-|---|---|
-| `adrm ls [过滤] [排序]` | 当前回收站（bin 表） |
-| `adrm log [过滤]` | 操作历史（reflog，只增不改） |
-| `adrm restore <id...> \| --last \| --all \| --pick` | 还原（`--replace` 冲突时先回收已存在文件） |
-| `adrm undo` | = `restore --last` |
-| `adrm purge <id...> \| --last \| --all` | 彻底清理（真删） |
-| `adrm gc [--dry-run] [--yes] [--quiet]` | 清理所有过期项 |
-| `adrm empty [--yes]` | 清空回收站 |
-| `adrm stats` | 统计 |
-| `adrm config --init\|--show\|--edit\|--path\|--validate` | 配置 |
-| `adrm completions bash\|zsh\|fish [--out DIR]` | 输出补全脚本 |
-| `adrm setup --install\|--uninstall\|--status` | shell 集成管理 |
-| `adrm doctor` | 自检（数据库完整性/孤儿对账/权限） |
-| `adrm db --reset\|--path` | 数据库维护 |
-
-### 过滤器（ls / log / restore / purge 通用，可组合 = AND）
-
-| 过滤 | 示例 | 说明 |
-|---|---|---|
-| 位置参数 id | `adrm purge 1 5 10`、`1-20`、`1,3,5-8` | 支持区间 |
-| `--state` | `--state recycled\|exception` | ls 按状态 |
-| `--op` | `log --op purge` | log 按操作类型 |
-| `--expired` | `ls --expired` | 已过期还没清理的 |
-| `--name` | `--name report` | 原路径子串，忽略大小写 |
-| `--path` | `--path ~/projects` | 原路径前缀 |
-| `--older-than` / `--newer-than` | `--older-than 3d`、`--older-than "2027-1-1"` | 按回收时间 |
-| `--mtime` | `--mtime +3d` / `-3d` / 无符号=恰好 | 按原始修改时间 |
-| `--size` | `--size +1g` / `-1k` / `10g20m` | 按大小 |
-| `--since` / `--until` | `log --since 7d` | log 按操作时间 |
-| `--last N` | `ls --last 10` | 最近 N 条 |
-| `--sort` | `--sort size:desc,id:asc` | 多字段排序，按出现优先级 |
-| `--json` / `--color` | | 输出控制 |
-
-## 配置与环境变量
-
-`~/.adrm/config`（`adrm config --init` 生成带注释模板）：
-
-```ini
-retention_days = 30        # 默认有效期(天)
-auto_gc = true             # 命令运行时顺带清理过期项(有产出才提示)
-prompt_threshold = 3       # -I 的询问阈值
-preserve_root = true
-copy_fallback = true       # 跨盘时复制+删除兜底
-lang = auto                # auto|zh|en, en 模式输出纯 ASCII
-color = auto               # auto|always|never (尊重 NO_COLOR)
-ls_columns = id, path, size, mtime, recycled, expire, left
-log_columns = seq, ts, op, id, path, detail
-max_list = 500             # 列表输出上限(超出会打印省略提示, 不静默截断)
+```
+已回收 '/home/you/old-project' (id=2, 4 B, 30 天后过期)
+没有过期的回收项。
 ```
 
-| 环境变量 | 作用 |
-|---|---|
-| `ADRM_HOME` | 主目录（默认 `~/.adrm`），换它就换了整个回收站 |
-| `ADRM_DB` / `ADRM_TRASH` / `ADRM_CONFIG` / `ADRM_IGNORE` | 覆盖各个文件路径 |
-| `ADRM_LANG` / `ADRM_COLOR` | 覆盖语言/颜色 |
-| `ADRM_AUTO_GC=0` / `ADRM_RETENTION_DAYS=7` | 覆盖行为配置 |
+```bash
+adrmm ls
+```
 
-## ignore 规则（gitignore 语法）
+```
+┌──────┬──────────────────────────┬──────┬─────────────────────┬─────────────────────┬─────────────────────┬──────┐
+ 编号 │ 原路径                   │ 大小 │ 修改时间            │ 回收时间            │ 过期时间            │ 剩余 
+├──────┼──────────────────────────┼──────┼─────────────────────┼─────────────────────┼─────────────────────┼──────┤
+    2 │ /home/you/old-project/   │  4 B │ 2026-10-13 17:41:46 │ 2026-10-13 17:41:46 │ 2026-11-12 17:41:46 │  30d 
+    1 │ /home/you/report.pdf     │ 19 B │ 2026-10-13 17:41:46 │ 2026-10-13 17:41:46 │ 2026-11-12 17:41:46 │  30d 
+└──────┴──────────────────────────┴──────┴─────────────────────┴─────────────────────┴─────────────────────┴──────┘
+```
 
-`~/.adrm/ignore`，命中则默认只提示不回收（`-f` 无视）。匹配比 gitignore 更直观：
-每个模式依次对 **绝对路径 / `$HOME` 相对路径 / 裸文件名** 尝试匹配。
+```bash
+adrmm restore 1
+```
+
+```
+已还原 '/home/you/report.pdf' (id=1)
+```
+
+目录在列表里带结尾 `/`，一眼区分文件和目录。
+
+---
+
+## 第一章 · 删除文件（adrm）
+
+### rm 兼容选项
+
+| 选项 | 含义 |
+|------|------|
+| `-f`, `--force` | 忽略不存在的文件、跳过询问、无视 ignore 规则 |
+| `-i`, `--interactive` | 逐个询问（与 `/bin/rm` 行为一致） |
+| `-I` | 一次回收超过阈值（默认 3 个）时询问一次 |
+| `-r`, `-R`, `--recursive` | 递归回收目录 |
+| `-d`, `--dir` | 回收空目录 |
+| `-v`, `--verbose` | 详细输出 |
+| `-y`, `--yes` | 所有询问默认回答「是」 |
+| `--dry-run` | 只演练不实操 |
+| `--preserve-root` / `--no-preserve-root` | 是否拒绝回收 `/`（默认拒绝） |
+| `--home PATH` | 指定 adrm 主目录（等同 `ADRM_HOME`） |
+| `--lang zh\|en` | 界面语言 |
+| `--color auto\|always\|never` | 颜色模式 |
+
+### 示例
+
+```bash
+adrm -rf old-project/
+```
+
+```bash
+adrm -i file1 file2
+```
+
+```
+remove regular empty file '/home/you/file1'? y
+已回收 '/home/you/file1' (id=3, 0 B, 30 天后过期)
+remove regular empty file '/home/you/file2'? n
+```
+
+（提示文案与 `/bin/rm` 一致：`remove regular empty file 'x'?`，`y` 回收、`n` 跳过。）
+
+```bash
+adrm -- -weird-name
+```
+
+`--` 之后的参数一律视为文件名，用来删除以 `-` 或 `+` 开头的文件。
+
+### 整条命令先校验后执行
+
+命令行有任何错误（未知选项、时间参数悬空、非法值）时**直接退出码 2，一个文件都不会动**：
+
+```bash
+adrm +1d a.txt +2d b.txt +3d
+```
+
+```
+adrm: 错误: 行尾的持续时间参数没有对应的文件 (持续时间向右亲和, 必须后接文件)
+```
+
+---
+
+## 第二章 · 有效期
+
+回收站里的东西不会永久保存。默认 30 天后过期（`retention_days` 可改），过期后由
+`adrmm gc` 或安装的定时器清理。
+
+### 三种写法
+
+| 写法 | 例子 | 含义 |
+|------|------|------|
+| 持续时间 | `+3d`、`+20h`、`+1s`、`+5m` | 相对当前时间，可组合 `+3d4h5m` |
+| `--for` | `--for 6d` | 同 `+6d` |
+| `--deadline` | `--deadline "2027/1/1"` | 绝对截止时间 |
+
+没有「月」和「年」单位：更长时间请写 `+730d`，或用 `--deadline`。
+
+### 绑定规则（向右亲和）
+
+有效期参数作用于它**后面**的文件，直到遇到下一个有效期参数：
+
+```bash
+adrm +1d a.txt b.txt +2d c.txt
+```
+
+```
+已回收 '/home/you/a.txt' (id=1, 0 B, 1 天后过期)
+已回收 '/home/you/b.txt' (id=2, 0 B, 1 天后过期)
+已回收 '/home/you/c.txt' (id=3, 0 B, 2 天后过期)
+```
+
+单独位于命令末尾的一个有效期参数作用于整条命令的所有文件：
+
+```bash
+adrm a.txt --deadline "2027/01/01"
+```
+
+```
+已回收 '/home/you/a.txt' (id=4, 0 B, 80 天后过期)
+```
+
+> 多个有效期参数 + 末尾还有一个悬空的，属于歧义，报错退出（见上节）。
+
+### `--deadline` 支持的日期时间格式
+
+分隔符 `/` `_` `-` 任意混用；时间部分可省略（默认 00:00:00），也可只写 `HH:MM`。
+
+```bash
+adrm file1 --deadline "2027/01/01"          有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027/1/01"           有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027/01/1"           有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027/1/1"            有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027_01_01"          有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027_1_01"           有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027_01_1"           有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027_1_1"            有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027-01-01"          有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027-1-01"           有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027-01-1"           有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027-1-1"            有效直到 2027年1月1日 00:00:00
+adrm file1 --deadline "2027/1/1 3:45"       有效直到 2027年1月1日 03:45:00
+adrm file1 --deadline "2027/1/1 03:45"      有效直到 2027年1月1日 03:45:00
+adrm file1 --deadline "2027/1/1 03:45:01"   有效直到 2027年1月1日 03:45:01
+adrm file1 --deadline "2027_1_1 3:45"       有效直到 2027年1月1日 03:45:00
+adrm file1 --deadline "2027_1_1 03:45"      有效直到 2027年1月1日 03:45:00
+adrm file1 --deadline "2027_1_1 03:45:01"   有效直到 2027年1月1日 03:45:01
+adrm file1 --deadline "2027-1-1 3:45"       有效直到 2027年1月1日 03:45:00
+adrm file1 --deadline "2027-1-1 03:45"      有效直到 2027年1月1日 03:45:00
+adrm file1 --deadline "2027-1-1 03:45:01"   有效直到 2027年1月1日 03:45:01
+```
+
+（`--until` 是 `--deadline` 的等价别名，两种拼写都可以。）
+
+### 过期清理
+
+没有守护进程，过期文件不会被实时删除。清理发生在：
+
+- 手动 `adrmm gc`
+- 运行其他命令时顺带惰性清理（有产出才提示一行）
+- 安装了 `--timer` 时由 systemd 每天执行一次
+
+```bash
+adrmm gc
+```
+
+```
+2 个回收项已过期:
+  #2 /home/you/old.iso
+  #3 /home/you/cache.tmp
+全部彻底清理这 2 个过期项? y
+已清理 2 个过期项。
+```
+
+```bash
+adrmm gc --dry-run
+```
+
+```
+演练模式, 1 个过期项将被清理:
+  #4 /home/you/exp2.txt (0 B)
+```
+
+```bash
+adrmm gc --yes
+```
+
+（`--yes` 跳过询问直接清理，适合脚本和定时器。）
+
+---
+
+## 第三章 · 查看回收站（adrmm ls）
+
+```bash
+adrmm ls
+```
+
+默认列出当前回收站所有项，最新在上。
+
+```bash
+adrmm ls --state exception
+```
+
+```bash
+adrmm ls --expired
+```
+
+```bash
+adrmm ls --json
+```
+
+```json
+[
+  {
+    "id": 1,
+    "path": "/home/you/report.pdf",
+    "is_dir": false,
+    "size": 19,
+    "size_human": "19 B",
+    "mode": 420,
+    "mode_octal": "0644",
+    "uid": 1000,
+    "gid": 1000,
+    "owner": "you",
+    "group": "you",
+    "mtime": "2026-10-13T17:41:46+08:00",
+    "recycled_at": "2026-10-13T17:41:46+08:00",
+    "expire_at": "2026-11-12T17:41:46+08:00",
+    "state": "recycled",
+    "trash_path": "/home/you/.adrm/trash/20261013-174146_000001/report.pdf"
+  }
+]
+```
+
+JSON 适合脚本消费；列集合可在配置文件里自定义（`columns`）。
+
+---
+
+## 第四章 · 操作历史（adrmm log）
+
+回收站只反映「现在有什么」，`log` 是**只增不改**的流水账：每次回收、还原、清理、
+过期、重置都记一条，文件被真正删除后记录依然在。
+
+```bash
+adrmm log
+```
+
+```
+┌──────┬─────────────────────┬─────────┬────┬──────────────────────────┬───────────────┐
+ 序号 │ 时间                │ 操作    │ 项 │ 原路径                   │ 详情          
+├──────┼─────────────────────┼─────────┼────┼──────────────────────────┼───────────────┤
+    2 │ 2026-10-13 17:41:46 │ recycle │  2 │ /home/you/old-project    │ method=rename 
+    1 │ 2026-10-13 17:41:46 │ recycle │  1 │ /home/you/report.pdf     │ method=rename 
+└──────┴─────────────────────┴─────────┴────┴──────────────────────────┴───────────────┘
+```
+
+```bash
+adrmm log --op purge
+```
+
+```bash
+adrmm log --since 3d --deadline 2027/1/1
+```
+
+```bash
+adrmm log --name report --json
+```
+
+编号（`seq`）单调递增、永不复用，可以放心用来引用历史。
+
+---
+
+## 第五章 · 还原（adrmm restore / undo）
+
+还原会把文件放回原始路径，并恢复**属主、属组、全部权限位（含 suid/sgid/sticky）、
+修改时间**。
+
+```bash
+adrmm restore 1
+```
+
+```
+已还原 '/home/you/report.pdf' (id=1)
+```
+
+```bash
+adrmm undo
+```
+
+```
+已还原 '/home/you/z.txt' (id=3)
+```
+
+`undo` 等价于 `restore --last`，还原最近回收的那一个。
+
+其他用法：
+
+```bash
+adrmm restore --last          # 最近一个
+adrmm restore 1 3 5           # 多个编号
+adrmm restore 1-20            # 编号区间
+adrmm restore --all           # 全部
+adrmm restore --pick          # 交互式勾选
+```
+
+目标位置已有同名文件时默认拒绝，加 `--replace` 会**先把冲突文件回收、再还原选中项**：
+
+```bash
+adrmm restore 1 --replace
+```
+
+```
+已回收 '/home/you/report.pdf' (id=9, 19 B, 30 天后过期)
+没有过期的回收项。
+已还原 '/home/you/report.pdf' (id=1)
+```
+
+跨文件系统（例如回收站和原文件不在同一分区）时自动走「复制 + 校验大小 + 删除原文件」，
+不会出现「复制失败但源文件已删」的事故。
+
+---
+
+## 第六章 · 彻底清理（purge / gc / empty）
+
+```bash
+adrmm purge 2
+```
+
+```
+已彻底清理 1 项。
+```
+
+```bash
+adrmm purge --last
+```
+
+```bash
+adrmm purge 1-5 --yes
+```
+
+```bash
+adrmm purge --name "*.tmp" --dry-run
+```
+
+```bash
+adrmm empty
+```
+
+```
+将彻底清空回收站中的 3 项(不可恢复):
+  #1 /home/you/report.pdf
+  #2 /home/you/old-project
+  #5 /home/you/notes.tmp
+确认清空回收站? y
+已彻底清理 3 项。
+```
+
+```bash
+adrmm empty --yes
+```
+
+清理后 `bin` 表对应行被删除，但 `log` 里的历史记录保留。
+
+---
+
+## 第七章 · 过滤与排序
+
+`ls` / `log` / `restore` / `purge` 共享同一套过滤器，可任意组合（逻辑 AND）。
+
+| 过滤器 | 例子 | 含义 |
+|--------|------|------|
+| 编号 | `1`、`1,5`、`1-20` | 位置参数，选中回收站编号 |
+| `--state` | `recycled`、`exception` | 按状态（ls） |
+| `--op` | `recycle`、`restore`、`purge`、`expire`、`reset`、`empty` | 按操作（log） |
+| `--expired` | — | 仅过期项 |
+| `--name` | `report` | 原路径包含该串（忽略大小写） |
+| `--path` | `/home/you/` | 原路径前缀 |
+| `--older-than` / `--newer-than` | `3d`、`2027/1/1` | 按回收时间 |
+| `--mtime` | `+3d`、`-3d`、`3d4h` | 按原文件修改时间 |
+| `--size` | `+1g`、`-1k`、`10g20m` | 按大小 |
+| `--since` / `--deadline` | `3d`、`2027/1/1` | 按操作时间（log） |
+| `--last` | `10` | 最近 N 条 |
+| `--sort` | `size:desc,id:asc` | 多字段排序 |
+
+```bash
+adrmm ls --size +1k --name pdf --sort size:desc
+```
+
+```bash
+adrmm log --op restore --last 5
+```
+
+时间参数接受与 `--deadline` 相同的全部日期格式（见第二章表格），
+以及 `3d4h5m` 这类持续时间和带方向的 `+3d`（之后）/ `-3d`（之前）。
+
+---
+
+## 第八章 · ignore 规则
+
+`~/.adrm/ignore` 使用 **gitignore 语法**。命中规则的文件**只提示、不回收**，
+除非加 `-f` 无视规则。
 
 ```gitignore
-*.tmp                  # 任何 .tmp
-secret/                # 任何名为 secret 的目录
-/var/log/*.log         # 前导 / = 文件系统绝对路径
-Downloads/*.iso        # $HOME/Downloads 下的 iso
-build/**               # build 目录内的所有内容
-!keep.tmp              # 取反: keep.tmp 重新参与正常回收
+# ~/.adrm/ignore
+*.tmp
+node_modules/
+/important-project/
 ```
-
-## 回收站里长什么样
-
-```
-~/.adrm/                            # 0700
-├── config                          # 配置
-├── ignore                          # gitignore 规则
-├── adrm.db                         # SQLite (WAL, busy_timeout)
-├── trash/
-│   └── 20260505-134426_000123/     # 批次目录: 时间_id, 可读可逛
-│       ├── report.pdf
-│       └── old-project/
-├── completions/{adrm.bash,_adrm,adrm.fish}
-└── adrm-init.sh                    # shell 集成入口
-```
-
-数据库两张表：
-
-- **`bin`**：当前回收站。进出回收站即删行；id 用 AUTOINCREMENT 全局分配，**永不复用**
-- **`reflog`**：操作历史。每次 bin 变更都在**同一事务**里追加一条
-  （recycle/restore/purge/expire/exception/reset/empty），永不修改、永不删除——
-  文件没了，记录还在
-
-## shell 补全
 
 ```bash
-adrm completions bash > ~/.local/share/bash-completion/completions/adrm
-adrm completions zsh  --out ~/.zfunc     # 并在 ~/.zshrc 加: fpath=(~/.zfunc $fpath); compinit
-adrm completions fish > ~/.config/fish/completions/adrm.fish
-# 或让 adrm 自己管:
-adrm setup --install
+adrm notes.tmp
 ```
 
-补全内容：子命令、全部选项（带简短说明）、枚举值（`--state`/`--op`/`--color`/`--lang`）、
-排序字段，以及**动态候选**：`adrm restore <TAB>` 列出回收站里的 id（附带原路径），
-`--name <TAB>` 列出历史文件名，`--path <TAB>` 列出历史目录。bash/zsh 下同时对 `rm`
-注册补全（因为 bash 的补全按字面单词查找，不会展开 alias）。
+```
+已跳过(命中 ignore 规则): /home/you/notes.tmp  (用 -f 强制执行)
+```
 
-## 安全语义
+```bash
+adrm -f notes.tmp
+```
 
-- 拒绝回收 `/`（`--no-preserve-root` 显式关闭）、`.`/`..`、adrm 主目录及其父目录、回收站自身
-- 回收站内的一切路径以数据库为准，绝不用原名反推——重名自动加 `.1` `.2` 后缀，不会互相覆盖
-- 跨文件系统：先 `rename`，失败则复制（保留属性）→ 校验大小 → 才删原文件，原文件永不凭空消失
-- 进程在"文件已移动、DB 未写"之间被杀：`adrm doctor` 能发现孤儿，可交互清理或登记
-- 还原前检查目标冲突：默认拒绝，`--replace` 先把冲突文件**回收**再还原——任何数据都不会静默丢失
+```
+已回收 '/home/you/notes.tmp' (id=7, 12 B, 30 天后过期)
+```
+
+支持 `!` 取反、`**` 通配、行尾 `/` 表示目录、`#` 注释。
+
+---
+
+## 第九章 · 配置与环境变量
+
+```bash
+adrmm config --init      # 生成带完整注释的配置模板
+adrmm config --show      # 查看生效配置
+adrmm config --edit      # 用 $EDITOR 编辑
+adrmm config --path      # 配置文件路径
+adrmm config --validate  # 校验
+```
+
+常用配置项（`~/.adrm/config`，`key = value`）：
+
+| 键 | 默认 | 说明 |
+|----|------|------|
+| `retention_days` | `30` | 默认保留天数 |
+| `prompt_threshold` | `3` | `-I` 询问阈值 |
+| `auto_gc` | `true` | 运行其他命令时顺带清理过期项 |
+| `columns` | 内置默认 | `ls` 显示哪些列、顺序如何 |
+| `lang` | `auto` | `auto` / `zh` / `en` |
+| `color` | `auto` | `auto` / `always` / `never` |
+| `trash_dir` / `database` / `ignore_file` | 主目录下 | 可改到别处 |
+
+环境变量（优先级高于配置文件）：
+
+| 变量 | 作用 |
+|------|------|
+| `ADRM_HOME` | 主目录（默认 `~/.adrm`） |
+| `ADRM_DB` | 数据库路径 |
+| `ADRM_TRASH` | 回收站目录 |
+| `ADRM_CONFIG` | 配置文件路径 |
+| `ADRM_IGNORE` | ignore 规则路径 |
+| `ADRM_LANG` | `zh` / `en` |
+| `ADRM_COLOR` | `auto` / `always` / `never` |
+| `ADRM_AUTO_GC` | `0` 关闭惰性清理 |
+| `ADRM_PROMPT_THRESHOLD` | `-I` 阈值 |
+
+`en` 模式下所有人读输出都是纯 ASCII（表格边框用 `+---+`），老终端/串口也能正常显示。
+
+---
+
+## 第十章 · shell 补全
+
+安装时已写入系统目录，开新终端即可用。也可以手动取用脚本：
+
+```bash
+adrmm completions bash
+adrmm completions zsh
+adrmm completions fish
+adrmm completions bash --out ~/.local/share/bash-completion/completions
+```
+
+补全内容：
+
+| 位置 | 补全内容 |
+|------|----------|
+| `adrm <TAB>` | 当前目录**文件**（和 `rm` 一致） |
+| `adrm -<TAB>` | adrm 自己的选项 |
+| `adrmm <TAB>` | **子命令**（ls/log/restore/...） |
+| `adrmm restore <TAB>` | 回收站编号（实时读数据库，附原路径） |
+| `adrmm ls --name <TAB>` | 数据库里的历史文件名 |
+| `adrmm ls --path <TAB>` | 数据库里的历史目录 |
+| `adrmm ls --state <TAB>` | 枚举值 |
+| `adrmm config --<TAB>` | 该子命令的选项 |
+
+子命令和文件**永远不在同一屏出现**：`adrm` 只出文件，`adrmm` 只出子命令。
+
+---
+
+## 第十一章 · rm 别名（可选）
+
+默认不装别名，`rm` 保持原样。想要「删除即回收」的完整体验：
+
+```bash
+adrmm setup --install --alias
+```
+
+```bash
+bash install.sh --alias
+```
+
+效果（写入你的 shell rc，带标记块，可干净移除）：
+
+```bash
+alias rm='adrm'
+complete -r rm 2>/dev/null || true
+complete -o default -o filenames -F _adrm_complete rm
+```
+
+即：交互式 shell 里 `rm` 变成 `adrm`，同时 `rm <TAB>` 的文件补全改由 adrm 提供。
+
+几点说明：
+
+- 别名只在**交互式 shell** 生效；脚本里的 `#!/bin/bash` 调用 `rm` 不受影响
+- 任何时候可以用 `command rm xxx` 或 `/bin/rm xxx` 走原生 rm
+- 逃生通道：`adrmm purge --all --yes` 清空回收站，`adrmm setup --uninstall` 移除集成
+
+---
+
+## 第十二章 · systemd 定时清理（可选）
+
+```bash
+adrmm setup --install --timer
+```
+
+生成并启用：
+
+- `~/.config/systemd/user/adrm-gc.service`（`ExecStart=/usr/bin/adrmm gc --quiet`）
+- `~/.config/systemd/user/adrm-gc.timer`（`OnCalendar=daily`，`Persistent=true`）
+
+```bash
+systemctl --user list-timers adrm-gc.timer
+```
+
+没有 systemd 用户会话时会写入单元文件并提示手动启用，不会报错中断安装。
+卸载时 `adrmm setup --uninstall` 会一并停用并删除。
+
+---
+
+## 第十三章 · 自检、统计与数据库
+
+```bash
+adrmm doctor
+```
+
+```
+adrm 自检报告:
+  [ok] database integrity /home/you/.adrm/adrm.db
+  [ok] trash copies       2 item(s) present
+  [ok] trash directory    /home/you/.adrm/trash
+  [ok] orphans            none
+  [ok] recorded sizes     match
+  [ok] home directory     /home/you/.adrm (0700)
+  [ok] config file        not present, using defaults ('adrm config --init' to create)
+一切正常。
+```
+
+```bash
+adrmm stats
+```
+
+```
+回收站: /home/you/.adrm/trash
+  当前项数: 2 (目录 1, 文件 1)
+  其中: 过期 0, 异常 0
+  记录总大小: 23 B, 实际占用: 4.0 KB
+  历史记录: 2 条 ( recycle 2 / restore 0 / purge 0 / expire 0 / exception 0 / reset 0 / empty 0 )
+```
+
+```bash
+adrmm db --path
+```
+
+```
+/home/you/.adrm/adrm.db
+```
+
+```bash
+adrmm db --reset
+```
+
+回收站非空时会先列出并询问是否先彻底清空，空则直接重置。数据库使用 WAL 模式 +
+`busy_timeout`，多个 adrm 进程并发写不会互相踩。
+
+---
+
+## 子命令速查表
+
+| 命令 | 作用 |
+|------|------|
+| `adrmm ls` | 列出当前回收站 |
+| `adrmm log` | 操作历史（只增不改） |
+| `adrmm restore <id...>` | 还原；`--last` / `--all` / `--replace` / `--pick` |
+| `adrmm undo` | 还原最近回收的一项 |
+| `adrmm purge <id...>` | 彻底清理；`--last` / `--all` / `--yes` |
+| `adrmm gc` | 清理过期项；`--dry-run` / `--yes` / `--quiet` |
+| `adrmm empty` | 清空回收站；`--yes` |
+| `adrmm stats` | 统计信息 |
+| `adrmm config` | `--init` / `--show` / `--edit` / `--path` / `--validate` |
+| `adrmm completions` | 输出补全脚本；`--out DIR` |
+| `adrmm setup` | `--install` / `--uninstall` / `--status` / `--alias` / `--timer` |
+| `adrmm doctor` | 自检 |
+| `adrmm db` | `--path` / `--reset` |
+| `adrmm help [命令]` | 帮助 |
+| `adrmm version` | 版本 |
+
+任何命令加 `--help` 看该命令的详细帮助。
+
+---
+
+## 卸载
+
+```bash
+bash install.sh --uninstall              # 保留 ~/.adrm（回收站数据）
+bash install.sh --uninstall --purge-home # 连回收站一起删
+```
+
+或只用二进制：
+
+```bash
+adrmm setup --uninstall             # rc 块、补全脚本、timer
+adrmm setup --uninstall --purge-home # 再加 ~/.adrm
+```
+
+只删自己写的内容：rc 文件里带 `# >>> adrm >>>` / `# <<< adrm <<<` 标记的块被整段移除，
+其他行一概不动。
+
+---
+
+## 设计取舍
+
+- **单用户、多回收站**：每个用户有自己的 `~/.adrm`（0700）。回收站含敏感文件名和内容，
+  不该被别人读；还原属主需要权限；SQLite 单写者。用 `ADRM_HOME` 或 `--home` 可切换回收站。
+- **两张表**：`bin` 记录「当前回收站里有什么」（还原/清理后行即删除），`log` 是只增的
+  流水账。编号全局分配、永不复用，所以历史引用永远稳定。
+- **惰性 GC，无守护进程**：过期不实时删除，`gc` / 其他命令顺带 / 可选 timer 三者取其一。
+- **严格校验后执行**：命令行有问题就整体退出，不会「删了一半才发现参数错了」。
+- **`trash_path` 是唯一真相**：文件在磁盘上的实际位置以数据库记录为准，doctor 会做对账。
+
+---
 
 ## 开发
 
 ```bash
-go build -o adrm .            # 构建
-go test ./...                 # 单元测试(表驱动, 含 en 纯 ASCII 断言)
-bash tests/integration.sh     # 85+ 项端到端测试(含 tmpfs 跨盘/并发/补全/安装卸载)
+go build -o adrm .            # 删除面孔
+go build -o adrmm ./cmd/adrmm # 管理面孔
+go test ./...
+bash tests/integration.sh     # 85 项集成测试
 ```
 
-代码结构：`internal/{cli,config,ignore,model,store,trash,x,render,i18n,complete}`，
-唯一外部依赖 `modernc.org/sqlite`（纯 Go 静态编译）。
+唯一外部依赖是 `modernc.org/sqlite`（纯 Go 转译的 SQLite），因此可以 `CGO_ENABLED=0`
+全静态构建，不依赖 glibc 版本。
+
+代码结构：`internal/cli`（参数解析与命令分发）、`internal/store`（双表 SQLite）、
+`internal/trash`（回收/还原/清理引擎）、`internal/model`（时间/大小语法）、
+`internal/ignore`（gitignore 匹配）、`internal/render`（表格与颜色）、
+`internal/i18n`（中英文）、`internal/complete`（补全脚本）。
 
 ---
 
-<a id="english"></a>
-
 ## English
 
-**adrm** is a safer `rm`: everything you delete moves into a per-user trash bin and can be
-listed, restored, or purged later. One static binary, no daemon, bash/zsh/fish completion,
-one-line install, clean uninstall.
+**adrm** turns `rm` into a recycle bin. Two binaries, one vocabulary each:
+`adrm` deletes (rm-compatible, completes file names), `adrmm` manages the trash
+(completes subcommands).
 
 ```bash
-# install
 curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh | bash
-
-# use
-adrm report.pdf            # recycle (default mode, rm-compatible flags)
-adrm -rf old-project/      # recycle a directory recursively
-adrm +7d notes/            # expire in 7 days
-adrm ls                    # list the trash bin
-adrm undo                  # restore the most recently recycled item
-adrm restore 12 --replace  # restore by id, recycling conflicts first
-adrm purge 1-5             # permanently delete items 1..5
-adrm gc                    # purge everything past its deadline
-adrm log --since 7d        # operation history (append-only, like git reflog)
-
-# manage
-adrm config --init         # annotated default config
-adrm completions bash      # print a completion script
-adrm setup --uninstall     # clean removal of shell integration
 ```
 
-Key properties:
+```bash
+adrm report.pdf                 # recycle
+adrm -r old-project/            # recycle a directory
+adrm file1 --deadline "2027/1/1" # keep until a date
+adrmm ls                        # what is in the trash
+adrmm restore 1                 # put it back
+adrmm purge 1                   # delete for real
+adrmm log                       # append-only history
+```
 
-- **Trash semantics**: `rename` first, copy+delete fallback across filesystems (with a size
-  check before the original is deleted). Restore replays owner, group, full permission bits
-  (suid/sgid/sticky) and mtime.
-- **Two tables**: `bin` (current trash; rows are removed when items leave; ids never reused)
-  and `reflog` (append-only history that survives the files it describes).
-- **Lazy expiry**: `auto_gc` collects expired items when any command runs; `adrm gc` does it
-  explicitly. No daemon anywhere.
-- **Language**: `lang = en` guarantees pure-ASCII output on every terminal; `zh` uses Chinese.
-- **Filters**: `--state/--op/--name/--path/--older-than/--newer-than/--mtime/--size/--since/
-  --until/--last`, multi-key `--sort`, `--json`, configurable columns.
-- **Completion**: embedded bash/zsh/fish scripts with live candidates read straight from the
-  database (trash ids, names, paths) via a hidden `adrm __complete` subcommand.
+Install options: `--alias` (alias rm=adrm and take over rm's completion),
+`--timer` (systemd --user daily cleanup), `-y` (accept defaults).
+Uninstall: `bash install.sh --uninstall [--purge-home]`.
 
-License: MIT.
+See the Chinese sections above for the full documentation, including every
+`--deadline` date/time spelling and the complete filter/sort reference.
+
+---
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。

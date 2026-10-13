@@ -340,6 +340,9 @@ func kindOf(fi os.FileInfo) string {
 		return i18n.Tr("socket", "socket")
 	case mode&0100 != 0:
 		return i18n.Tr("executable", "executable")
+	case fi.Size() == 0:
+		// /bin/rm says "remove regular empty file 'x'?" for empty files
+		return i18n.Tr("regular empty file", "regular empty file")
 	default:
 		return i18n.Tr("regular file", "regular file")
 	}

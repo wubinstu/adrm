@@ -28,25 +28,43 @@ func (a *app) cmdCompletions(args []string) int {
 	if shell != "bash" && shell != "zsh" && shell != "fish" {
 		return a.fail(usageErr("%s", i18n.Tr("completions 只支持 bash|zsh|fish, 得到 %q", "completions supports bash|zsh|fish, got %q", shell)))
 	}
-	var script string
-	switch shell {
-	case "zsh":
-		script = complete.Zsh()
-	case "fish":
-		script = complete.Fish()
-	default:
-		script = complete.Bash()
+	// optional second positional: which face's script to print. Without it the
+	// running binary's own script is used; "--out DIR" always writes both.
+	bin := a.Name()
+	if len(p.pos) > 1 {
+		switch strings.ToLower(p.pos[1]) {
+		case "adrm", "adrmm":
+			bin = strings.ToLower(p.pos[1])
+		default:
+			return a.fail(usageErr("%s", i18n.Tr("第二个参数只支持 adrm|adrmm, 得到 %q", "the second argument supports adrm|adrmm, got %q", p.pos[1])))
+		}
+	}
+	scriptFor := func(b string) string {
+		switch shell {
+		case "zsh":
+			return complete.Zsh(b)
+		case "fish":
+			return complete.Fish(b)
+		default:
+			return complete.Bash(b)
+		}
 	}
 	if out := p.val("out"); out != "" {
-		path := filepath.Join(out, complete.FileName(shell))
-		if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+		if err := os.MkdirAll(out, 0o755); err != nil {
 			return a.fail(err)
 		}
-		fmt.Fprintf(a.out, i18n.Tr("已写入 %s\n", "wrote %s\n"), path)
-		fmt.Fprintf(a.out, i18n.Tr("在 ~/.bashrc 或 ~/.zshrc 中加入: source %s\n", "add to ~/.bashrc or ~/.zshrc: source %s\n"), path)
+		for _, b := range []string{"adrm", "adrmm"} {
+			path := filepath.Join(out, complete.FileName(shell, b))
+			if err := os.WriteFile(path, []byte(scriptFor(b)), 0o644); err != nil {
+				return a.fail(err)
+			}
+			fmt.Fprintf(a.out, i18n.Tr("已写入 %s\n", "wrote %s\n"), path)
+		}
+		fmt.Fprintf(a.out, i18n.Tr("在 ~/.bashrc 或 ~/.zshrc 中加入: source %s\n", "add to ~/.bashrc or ~/.zshrc: source %s\n"),
+			filepath.Join(out, complete.FileName(shell, "adrm")))
 		return 0
 	}
-	fmt.Fprint(a.out, script)
+	fmt.Fprint(a.out, scriptFor(bin))
 	return 0
 }
 
@@ -67,6 +85,12 @@ func (a *app) runComplete(args []string) int {
 		prefix = nil
 	}
 	cands := a.candidates(prefix, cur)
+	// In the management face a non-empty candidate list means "no file names
+	// at all", so the shell must not silently append them (that is how the two
+	// vocabularies used to get mixed).
+	if a.mode == ModeManage && len(cands) > 0 {
+		cands = append(cands, candidate{name: "__nofiles__"})
+	}
 	if shell == "bash" {
 		for _, c := range cands {
 			fmt.Fprintln(a.out, c.name)
@@ -88,15 +112,31 @@ type candidate struct {
 	desc string
 }
 
-// candidates decides what to offer given the words before the cursor.
+// candidates decides what to offer given the words before the cursor. The two
+// binary faces never share a vocabulary: adrm offers options and file names,
+// adrmm offers subcommands, their options and trash ids.
 func (a *app) candidates(prefix []string, cur string) []candidate {
+	// adrm (delete face): only its own small option set; file names are
+	// supplied by the shell, never by us, so subcommands cannot leak in.
+	if a.mode == ModeDelete {
+		if strings.HasPrefix(cur, "-") {
+			return recycleOptionCandidates(cur)
+		}
+		// --home / --out style path values still want directory names.
+		if len(prefix) > 0 {
+			switch prefix[len(prefix)-1] {
+			case "--home":
+				return dirCandidates(cur)
+			}
+		}
+		return nil
+	}
 	// completing the very first word: subcommands
 	if len(prefix) == 0 {
 		return commandCandidates()
 	}
 	cmd := prefix[0]
 	if !subcommands[cmd] && cmd != "help" && cmd != "version" {
-		// recycle mode: only options when typing "-"
 		if strings.HasPrefix(cur, "-") {
 			return recycleOptionCandidates(cur)
 		}
@@ -117,6 +157,8 @@ func (a *app) candidates(prefix []string, cur string) []candidate {
 			return a.nameCandidates(cur)
 		case "--path":
 			return a.pathCandidates(cur)
+		case "--home", "--out":
+			return dirCandidates(cur)
 		}
 	}
 	// positional candidates
@@ -141,6 +183,34 @@ func filterPrefix(cs []candidate, cur string) []candidate {
 	return out
 }
 
+// dirCandidates lists directories matching cur from the shell's point of
+// view (used for --home/--out values).
+func dirCandidates(cur string) []candidate {
+	dir, base := cur, ""
+	if i := strings.LastIndex(cur, "/"); i >= 0 {
+		dir, base = cur[:i+1], cur[i+1:]
+	}
+	if dir == "" {
+		dir = "."
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []candidate
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, base) {
+			continue
+		}
+		out = append(out, candidate{name: dir + name + "/"})
+	}
+	return out
+}
+
 func commandCandidates() []candidate {
 	cmds := []string{"ls", "log", "restore", "undo", "purge", "gc", "empty", "stats",
 		"config", "completions", "setup", "doctor", "db", "help", "version"}
@@ -156,7 +226,7 @@ func recycleOptionCandidates(cur string) []candidate {
 		{"--force", "-f"}, {"--interactive", "-i"}, {"--recursive", "-r -R"},
 		{"--dir", "-d"}, {"--verbose", "-v"}, {"--yes", "-y"}, {"--dry-run", ""},
 		{"--preserve-root", ""}, {"--no-preserve-root", ""},
-		{"--for", "expiry duration"}, {"--until", "expiry deadline"},
+		{"--for", "expiry duration"}, {"--deadline", "expiry deadline"}, {"--until", "= --deadline"},
 		{"--home", ""}, {"--lang", ""}, {"--color", ""}, {"--help", "-h"},
 	}
 	var out []candidate
@@ -360,10 +430,10 @@ func (a *app) storeItemsForCompletion() ([]model.Item, error) {
 
 // ---- per-command help ----
 
-func cmdHelp(cmd string) string {
+func (a *app) cmdHelp(cmd string) string {
 	switch cmd {
 	case "ls":
-		return i18n.Tr(`用法: adrm ls [过滤] [排序] [选项]
+		return i18n.Tr(`用法: adrmm ls [过滤] [排序] [选项]
 
 列出当前回收站中的文件(只有还在回收站里的才列出; 历史见 'adrm log')。
 
@@ -385,12 +455,11 @@ func cmdHelp(cmd string) string {
   --color MODE     auto|always|never
   --lang zh|en
 
-示例:
-  adrm ls --state exception
+示例: adrmm ls --state exception
   adrm ls --path ~/projects --last 20
   adrm ls --sort size:desc
   adrm ls --expired --json
-`, `usage: adrm ls [filters] [sort] [options]
+`, `usage: adrmm ls [filters] [sort] [options]
 
 list what is currently in the trash bin (history lives in 'adrm log').
 
@@ -412,14 +481,13 @@ options:
   --color MODE     auto|always|never
   --lang zh|en
 
-examples:
-  adrm ls --state exception
+examples: adrmm ls --state exception
   adrm ls --path ~/projects --last 20
   adrm ls --sort size:desc
   adrm ls --expired --json
 `)
 	case "log":
-		return i18n.Tr(`用法: adrm log [过滤] [选项]
+		return i18n.Tr(`用法: adrmm log [过滤] [选项]
 
 操作历史(类似 git reflog): 只追加, 永不修改。即使对应文件早已被彻底
 清理, 记录依然保留, 可以追溯 "我删过什么"。
@@ -434,11 +502,10 @@ examples:
 排序: --sort seq|ts|op|item|path|size[:asc|:desc]
 选项: --json
 
-示例:
-  adrm log --op purge --last 20
+示例: adrmm log --op purge --last 20
   adrm log --since 7d
   adrm log --name report.pdf
-`, `usage: adrm log [filters] [options]
+`, `usage: adrmm log [filters] [options]
 
 operation history (like git reflog): append-only, never modified. Records
 survive the file they describe.
@@ -453,13 +520,12 @@ filters:
 sort: --sort seq|ts|op|item|path|size[:asc|:desc]
 options: --json
 
-examples:
-  adrm log --op purge --last 20
+examples: adrmm log --op purge --last 20
   adrm log --since 7d
   adrm log --name report.pdf
 `)
 	case "restore":
-		return i18n.Tr(`用法: adrm restore <id...> | --last | --all | --pick [选项]
+		return i18n.Tr(`用法: adrmm restore <id...> | --last | --all | --pick [选项]
 
 把文件还原到原始路径, 恢复属主/属组/完整权限位(含 suid/sgid/sticky)与
 修改时间。
@@ -471,12 +537,11 @@ examples:
   --replace      目标已存在时, 先把已存在的文件回收进回收站再还原
   --dry-run      只演练
 
-示例:
-  adrm restore 42
+示例: adrmm restore 42
   adrm restore 1-5 --replace
   adrm undo
   adrm restore --pick
-`, `usage: adrm restore <id...> | --last | --all | --pick [options]
+`, `usage: adrmm restore <id...> | --last | --all | --pick [options]
 
 restore items to their original path with owner, group, full permission
 bits (including suid/sgid/sticky) and mtime.
@@ -488,25 +553,23 @@ options:
   --replace      when the target exists, recycle the existing file first
   --dry-run      show what would happen
 
-examples:
-  adrm restore 42
+examples: adrmm restore 42
   adrm restore 1-5 --replace
   adrm undo
   adrm restore --pick
 `)
 	case "purge":
-		return i18n.Tr(`用法: adrm purge <id...> | --last | --all [选项]
+		return i18n.Tr(`用法: adrmm purge <id...> | --last | --all [选项]
 
 从回收站中彻底删除(真正删除, 不可恢复, 历史记录保留)。
 
 选项:
   --last / --all / --dry-run / --yes
 
-示例:
-  adrm purge 42
+示例: adrmm purge 42
   adrm purge --all --yes
   adrm purge 1-10 --dry-run
-`, `usage: adrm purge <id...> | --last | --all [options]
+`, `usage: adrmm purge <id...> | --last | --all [options]
 
 permanently delete items from the trash (real deletion, unrecoverable;
 the history entry stays).
@@ -514,56 +577,53 @@ the history entry stays).
 options:
   --last / --all / --dry-run / --yes
 
-examples:
-  adrm purge 42
+examples: adrmm purge 42
   adrm purge --all --yes
   adrm purge 1-10 --dry-run
 `)
 	case "gc":
-		return i18n.Tr(`用法: adrm gc [--dry-run] [--yes] [--quiet]
+		return i18n.Tr(`用法: adrmm gc [--dry-run] [--yes] [--quiet]
 
 清理所有已过有效期的回收项。adrm 没有守护进程; 过期清理是惰性的——只有
 运行 gc (或任何命令在 auto_gc=true 时顺带) 才会真正删除。
 
-示例:
-  adrm gc --dry-run
+示例: adrmm gc --dry-run
   adrm gc
-`, `usage: adrm gc [--dry-run] [--yes] [--quiet]
+`, `usage: adrmm gc [--dry-run] [--yes] [--quiet]
 
 purge every item past its retention deadline. adrm has no daemon; expiry is
 lazy: items are only removed when gc runs (or opportunistically when auto_gc
 is on).
 
-examples:
-  adrm gc --dry-run
+examples: adrmm gc --dry-run
   adrm gc
 `)
 	case "empty":
-		return i18n.Tr(`用法: adrm empty [--yes] [--dry-run]
+		return i18n.Tr(`用法: adrmm empty [--yes] [--dry-run]
 
 清空回收站(彻底删除所有项)。历史记录保留。
 
-示例: adrm empty --yes
-`, `usage: adrm empty [--yes] [--dry-run]
+示例: adrmm empty --yes
+`, `usage: adrmm empty [--yes] [--dry-run]
 
 empty the whole trash bin (permanently deletes every item). History is kept.
 
-examples: adrm empty --yes
+examples: adrmm empty --yes
 `)
 	case "stats":
-		return i18n.Tr(`用法: adrm stats [--json]
+		return i18n.Tr(`用法: adrmm stats [--json]
 
 回收站统计: 项数/大小/过期数/历史条数等。
 
-示例: adrm stats
-`, `usage: adrm stats [--json]
+示例: adrmm stats
+`, `usage: adrmm stats [--json]
 
 trash statistics: counts, sizes, expired items, history entries.
 
-examples: adrm stats
+examples: adrmm stats
 `)
 	case "config":
-		return i18n.Tr(`用法: adrm config (--init|--show|--edit|--path|--validate) [--force]
+		return i18n.Tr(`用法: adrmm config (--init|--show|--edit|--path|--validate) [--force]
 
   --init       生成带完整注释的默认配置文件 (--force 覆盖)
   --show       显示生效配置
@@ -571,10 +631,9 @@ examples: adrm stats
   --path       打印配置文件路径
   --validate   校验配置文件
 
-示例:
-  adrm config --init
+示例: adrmm config --init
   adrm config --show
-`, `usage: adrm config (--init|--show|--edit|--path|--validate) [--force]
+`, `usage: adrmm config (--init|--show|--edit|--path|--validate) [--force]
 
   --init       write the annotated default config (--force to overwrite)
   --show       show the effective config
@@ -582,34 +641,31 @@ examples: adrm stats
   --path       print the config file path
   --validate   validate the config file
 
-examples:
-  adrm config --init
+examples: adrmm config --init
   adrm config --show
 `)
 	case "completions":
-		return i18n.Tr(`用法: adrm completions <bash|zsh|fish> [--out DIR]
+		return i18n.Tr(`用法: adrmm completions <bash|zsh|fish> [--out DIR]
 
 输出补全脚本。动态候选(回收站 id、文件名)由脚本调用 'adrm __complete'
 实时查询数据库得到。
 
-示例:
-  adrm completions bash > ~/.local/share/bash-completion/completions/adrm
+示例: adrmm completions bash > ~/.local/share/bash-completion/completions/adrm
   adrm completions zsh --out ~/.zfunc
   adrm completions fish > ~/.config/fish/completions/adrm.fish
   或一键管理: adrm setup --install
-`, `usage: adrm completions <bash|zsh|fish> [--out DIR]
+`, `usage: adrmm completions <bash|zsh|fish> [--out DIR]
 
 print a completion script. dynamic candidates (trash ids, file names) are
 queried live from the database via 'adrm __complete'.
 
-examples:
-  adrm completions bash > ~/.local/share/bash-completion/completions/adrm
+examples: adrmm completions bash > ~/.local/share/bash-completion/completions/adrm
   adrm completions zsh --out ~/.zfunc
   adrm completions fish > ~/.config/fish/completions/adrm.fish
   or let adrm manage it: adrm setup --install
 `)
 	case "setup":
-		return i18n.Tr(`用法: adrm setup (--install|--uninstall|--status) [选项]
+		return i18n.Tr(`用法: adrmm setup (--install|--uninstall|--status) [选项]
 
 安装/卸载 shell 集成: rm 别名 + bash/zsh/fish 补全。所有写入内容都带
 标记块, 卸载时精确移除, 绝不动你其他的配置。
@@ -621,12 +677,11 @@ examples:
   --purge-home                  卸载时连同回收站数据一起删除 (需确认)
   --cron                        显示可选的定时清理配置方法
 
-示例:
-  adrm setup --install
+示例: adrmm setup --install
   adrm setup --uninstall
   adrm setup --uninstall --purge-home
   adrm setup --status
-`, `usage: adrm setup (--install|--uninstall|--status) [options]
+`, `usage: adrmm setup (--install|--uninstall|--status) [options]
 
 install/remove shell integration: the rm alias and bash/zsh/fish completion.
 Everything adrm writes is wrapped in marker blocks, so uninstall removes
@@ -639,58 +694,55 @@ options:
   --purge-home                    also delete the trash data on uninstall
   --cron                          show optional scheduled-cleanup recipes
 
-examples:
-  adrm setup --install
+examples: adrmm setup --install
   adrm setup --uninstall
   adrm setup --uninstall --purge-home
   adrm setup --status
 `)
 	case "doctor":
-		return i18n.Tr(`用法: adrm doctor
+		return i18n.Tr(`用法: adrmm doctor
 
 自检: 数据库完整性, 数据库中每条记录与磁盘的对账, 回收站中的孤立文件,
 主目录权限等。
 
-示例: adrm doctor
-`, `usage: adrm doctor
+示例: adrmm doctor
+`, `usage: adrmm doctor
 
 self-check: database integrity, reconciliation of every database row with
 the disk, orphan files in the trash, home directory permissions.
 
-examples: adrm doctor
+examples: adrmm doctor
 `)
 	case "db":
-		return i18n.Tr(`用法: adrm db --reset [--yes] | --path
+		return i18n.Tr(`用法: adrmm db --reset [--yes] | --path
 
   --reset   清空数据库(当前表 + reflog 历史)。回收站非空时会先列出并询问
             是否先彻底清空回收站。
   --path    打印数据库路径
 
-示例:
-  adrm db --path
+示例: adrmm db --path
   adrm db --reset
-`, `usage: adrm db --reset [--yes] | --path
+`, `usage: adrmm db --reset [--yes] | --path
 
   --reset   clear the database (current items + reflog history). when the
             trash is not empty, list it and ask whether to empty it first.
   --path    print the database path
 
-examples:
-  adrm db --path
+examples: adrmm db --path
   adrm db --reset
 `)
 	case "undo":
-		return i18n.Tr(`用法: adrm undo [--dry-run]
+		return i18n.Tr(`用法: adrmm undo [--dry-run]
 
-还原最近回收的一个文件/目录 (等价于 'adrm restore --last')。
+还原最近回收的一个文件/目录 (等价于 'adrmm restore --last')。
 
-示例: adrm undo
-`, `usage: adrm undo [--dry-run]
+示例: adrmm undo
+`, `usage: adrmm undo [--dry-run]
 
-restore the most recently recycled item (same as 'adrm restore --last').
+restore the most recently recycled item (same as 'adrmm restore --last').
 
-examples: adrm undo
+examples: adrmm undo
 `)
 	}
-	return helpText()
+	return a.helpText()
 }

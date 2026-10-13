@@ -26,8 +26,22 @@ var subcommands = map[string]bool{
 	"setup": true, "doctor": true, "db": true,
 }
 
+// Mode selects which face of the CLI is running. adrm and adrmm are two
+// binaries built from the same tree so that shell completion can keep the
+// two vocabularies strictly apart: adrm completes file paths (like /bin/rm),
+// adrmm completes subcommands (like git).
+type Mode int
+
+const (
+	// ModeDelete is the rm-compatible binary: adrm <files...>
+	ModeDelete Mode = iota
+	// ModeManage is the trash-management binary: adrmm <subcommand> ...
+	ModeManage
+)
+
 // app holds process-wide state for one CLI invocation.
 type app struct {
+	mode           Mode
 	cfg            *config.Config
 	st             *store.Store
 	eng            *trash.Engine
@@ -36,9 +50,18 @@ type app struct {
 	storeAttempted bool
 }
 
-// Run executes the CLI and returns the process exit code.
-func Run(args []string, in io.Reader, out, errw io.Writer) int {
-	a := &app{in: in, out: out, errw: errw}
+// Name is the program name as the user typed it.
+func (a *app) Name() string {
+	if a.mode == ModeManage {
+		return "adrmm"
+	}
+	return "adrm"
+}
+
+// Run executes the CLI and returns the process exit code. mode picks the
+// binary face (see Mode).
+func Run(args []string, in io.Reader, out, errw io.Writer, mode Mode) int {
+	a := &app{mode: mode, in: in, out: out, errw: errw}
 
 	// Bootstrap language as early as possible from config + locale so that
 	// even early messages are localized.
@@ -56,8 +79,28 @@ func Run(args []string, in io.Reader, out, errw io.Writer) int {
 		return 1
 	}
 
-	// The subcommand must be the first non-option token; anything else means
-	// the rm-compatible recycle mode (a file literally named "ls" needs ./ls).
+	if a.mode == ModeManage {
+		return a.runManage(args)
+	}
+
+	// ModeDelete: pure rm-compatible behavior. No subcommands exist here, so
+	// "adrm ls" recycles a file literally named ls (use ./ls for cwd files).
+	if cmd, idx := scanCommand(args); cmd == "__complete" {
+		return a.runComplete(args[idx+1:])
+	}
+	if hasFlag(args, "--help", "-h") {
+		a.printHelp(nil)
+		return 0
+	}
+	if hasFlag(args, "--version", "-V") {
+		fmt.Fprintf(out, "adrm %s\n", version)
+		return 0
+	}
+	return a.runRecycle(args)
+}
+
+// runManage dispatches adrmm: the first non-option token is the subcommand.
+func (a *app) runManage(args []string) int {
 	cmd, cmdIdx := scanCommand(args)
 	if cmdIdx < 0 {
 		if hasFlag(args, "--help", "-h") {
@@ -65,17 +108,18 @@ func Run(args []string, in io.Reader, out, errw io.Writer) int {
 			return 0
 		}
 		if hasFlag(args, "--version", "-V") {
-			fmt.Fprintf(out, "adrm %s\n", version)
+			fmt.Fprintf(a.out, "adrmm %s\n", version)
 			return 0
 		}
-		return a.runRecycle(args)
+		a.printUsage()
+		return 1
 	}
 	switch cmd {
 	case "help":
 		a.printHelp(restAfter(args, cmdIdx))
 		return 0
 	case "version":
-		fmt.Fprintf(out, "adrm %s\n", version)
+		fmt.Fprintf(a.out, "adrmm %s\n", version)
 		return 0
 	case "__complete":
 		return a.runComplete(args[cmdIdx+1:])
@@ -83,8 +127,7 @@ func Run(args []string, in io.Reader, out, errw io.Writer) int {
 	if subcommands[cmd] {
 		return a.runSubcommand(cmd, append(args[:cmdIdx:cmdIdx], args[cmdIdx+1:]...))
 	}
-	// default mode: rm-compatible recycling
-	return a.runRecycle(args)
+	return a.fail(usageErr("%s", i18n.Tr("未知子命令: %s (输入 'adrmm help' 查看全部)", "unknown command: %s (try 'adrmm help')", cmd)))
 }
 
 // scanCommand finds the first non-option token (the subcommand, if any),
@@ -209,8 +252,4 @@ func localeOf() string {
 		}
 	}
 	return ""
-}
-
-func (a *app) printUsage() {
-	fmt.Fprint(a.errw, usageText())
 }

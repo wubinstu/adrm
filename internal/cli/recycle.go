@@ -14,7 +14,7 @@ import (
 // runRecycle implements the default rm-compatible mode.
 //
 // Grammar: [options] <file...> [expiry...]
-//   - an expiry token (+3d, --for 6d, --until DATE) applies to every following
+//   - an expiry token (+3d, --for 6d, --deadline DATE) applies to every following
 //     file until the next expiry token (right-associative);
 //   - the whole command line is validated before anything is moved;
 //   - a dangling expiry token (no file after it) is an error.
@@ -25,7 +25,9 @@ func (a *app) runRecycle(args []string) int {
 	opt := trash.RecycleOpts{}
 
 	curExpire := defaultExpire
+	lastExpire := int64(0)
 	pendingExpiry := false // an expiry token not yet followed by a file
+	expiryCount := 0       // how many expiry tokens the command line holds
 	stopOpts := false
 
 	err := func() error {
@@ -117,18 +119,20 @@ func (a *app) runRecycle(args []string) int {
 						return usageErr("%s", i18n.Tr("--for 的持续时间无效: %v", "invalid duration for --for: %v", err))
 					}
 					curExpire = now + d
+					lastExpire = curExpire
 					pendingExpiry = true
-				case "until":
+					expiryCount++
+				case "deadline", "until":
 					if !hasVal {
 						if i+1 >= len(args) {
-							return usageErr("%s", i18n.Tr("--until 需要一个日期时间", "--until requires a date/time"))
+							return usageErr("%s", i18n.Tr("--deadline 需要一个日期时间, 如 2027/1/1 03:45:01", "--deadline requires a date/time, e.g. 2027/1/1 03:45:01"))
 						}
 						i++
 						val = args[i]
 					}
 					spec, err := model.ParseTimeArg(val, now)
 					if err != nil {
-						return usageErr("%s", i18n.Tr("--until 的时间无效: %v", "invalid time for --until: %v", err))
+						return usageErr("%s", i18n.Tr("--deadline 的时间无效: %v", "invalid time for --deadline: %v", err))
 					}
 					ts := int64(0)
 					if spec.Hi != nil {
@@ -137,7 +141,9 @@ func (a *app) runRecycle(args []string) int {
 						ts = *spec.Lo
 					}
 					curExpire = ts
+					lastExpire = ts
 					pendingExpiry = true
+					expiryCount++
 				default:
 					return usageErr("%s", i18n.Tr("未知选项 --%s (见 'adrm help')", "unknown option --%s (see 'adrm help')", name))
 				}
@@ -179,7 +185,9 @@ func (a *app) runRecycle(args []string) int {
 					continue
 				}
 				curExpire = now + d
+				lastExpire = curExpire
 				pendingExpiry = true
+				expiryCount++
 				continue
 			}
 			targets = append(targets, trash.Target{Path: tok, ExpireAt: curExpire})
@@ -195,9 +203,20 @@ func (a *app) runRecycle(args []string) int {
 		return 2
 	}
 	if pendingExpiry {
-		fmt.Fprintf(a.errw, "adrm: %s\n", i18n.Tr("错误: 行尾的持续时间参数没有对应的文件 (持续时间向右亲和, 必须后接文件)",
-			"error: trailing expiry argument has no file (durations are right-associative and must be followed by files)"))
-		return 2
+		// A single expiry token at the very end of the command line is the
+		// natural "delete these, keep them until then" spelling
+		// (adrm file1 --deadline "2027/1/1"), so it applies to every file in
+		// the command. Anything more is ambiguous (which file does the second
+		// expiry belong to?) and stays a hard error, exactly like before.
+		if expiryCount == 1 && len(targets) > 0 {
+			for i := range targets {
+				targets[i].ExpireAt = lastExpire
+			}
+		} else {
+			fmt.Fprintf(a.errw, "adrm: %s\n", i18n.Tr("错误: 行尾的持续时间参数没有对应的文件 (持续时间向右亲和, 必须后接文件)",
+				"error: trailing expiry argument has no file (durations are right-associative and must be followed by files)"))
+			return 2
+		}
 	}
 	if len(targets) == 0 {
 		a.printUsage()

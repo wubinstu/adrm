@@ -17,7 +17,8 @@ type optSpec struct {
 	long       string
 	short      string
 	takesValue bool
-	multi      bool // repeatable option (--sort)
+	multi      bool   // repeatable option (--sort)
+	alias      string // accepted alternative spelling, stored under long
 }
 
 // parser is a tiny strict option parser shared by all subcommands.
@@ -50,6 +51,9 @@ func (p *parser) parse(args []string, specs []optSpec) error {
 	byShort := map[string]optSpec{}
 	for _, s := range specs {
 		byLong[s.long] = s
+		if s.alias != "" {
+			byLong[s.alias] = s
+		}
 		if s.short != "" {
 			byShort[s.short] = s
 		}
@@ -153,7 +157,7 @@ var filterSpecs = concatSpecs(commonSpecs, []optSpec{
 	{long: "mtime", takesValue: true},
 	{long: "size", takesValue: true},
 	{long: "since", takesValue: true},
-	{long: "until", takesValue: true},
+	{long: "deadline", takesValue: true, alias: "until"},
 	{long: "sort", takesValue: true, multi: true},
 	{long: "json"},
 	{long: "expired"},
@@ -257,7 +261,7 @@ func (a *app) buildFilter(p *parser, forLog bool) (*model.Filter, error) {
 		}
 		f.OpLo = b
 	}
-	if v := p.val("until"); v != "" {
+	if v := p.val("deadline"); v != "" {
 		b, err := timeBound(v, now, true)
 		if err != nil {
 			return nil, err

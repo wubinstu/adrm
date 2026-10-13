@@ -10,6 +10,7 @@
 # build output
 /dist/
 /adrm
+/adrmm
 *.test
 
 # editor / harness

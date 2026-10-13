@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -33,6 +34,117 @@ func shellProfiles(home string) []shellProfile {
 	}
 }
 
+// globalCompletionDirs returns the system-wide completion directories that
+// exist (or can be created) for each shell. A nil entry means "not
+// available"; the caller then falls back to a per-user directory.
+func globalCompletionDirs() map[string]string {
+	candidates := map[string][]string{
+		// bash-completion lazy-loads from the share dir; the /etc variant is
+		// the fallback on systems without the share layout.
+		"bash": {"/usr/share/bash-completion/completions", "/etc/bash_completion.d"},
+		"zsh":  {"/usr/share/zsh/site-functions", "/usr/local/share/zsh/site-functions"},
+		"fish": {"/usr/share/fish/vendor_completions.d", "/usr/local/share/fish/vendor_completions.d"},
+	}
+	out := map[string]string{}
+	for shell, dirs := range candidates {
+		for _, d := range dirs {
+			if isDir(d) {
+				out[shell] = d
+				break
+			}
+			if canCreate(d) {
+				out[shell] = d
+				break
+			}
+		}
+	}
+	return out
+}
+
+func isDir(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
+// canCreate reports whether the parent of p is writable, i.e. mkdir -p p
+// would succeed for the current user.
+func canCreate(p string) bool {
+	parent := filepath.Dir(p)
+	for parent != "/" && parent != "." {
+		if isDir(parent) {
+			return unixWritable(parent)
+		}
+		parent = filepath.Dir(parent)
+	}
+	return false
+}
+
+func unixWritable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".adrm-probe-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return true
+}
+
+// userCompletionDirs are the per-user fallbacks.
+func userCompletionDirs(home string) map[string]string {
+	return map[string]string{
+		"bash": filepath.Join(home, ".local", "share", "bash-completion", "completions"),
+		"zsh":  filepath.Join(home, ".zfunc"),
+		"fish": filepath.Join(home, ".config", "fish", "completions"),
+	}
+}
+
+// completionInstallPlan decides where each shell's completion files go.
+type completionPlan struct {
+	// Dirs maps shell -> directory (global when available, else per-user).
+	Dirs map[string]string
+	// Global reports whether at least one shell got a system-wide directory.
+	Global bool
+	// LocalDirs holds the per-user fallback for shells without a global dir.
+	LocalDirs map[string]string
+}
+
+func planCompletions(home string) completionPlan {
+	glob := globalCompletionDirs()
+	loc := userCompletionDirs(home)
+	plan := completionPlan{Dirs: map[string]string{}, LocalDirs: loc}
+	for _, sh := range []string{"bash", "zsh", "fish"} {
+		if d, ok := glob[sh]; ok {
+			plan.Dirs[sh] = d
+			plan.Global = true
+		} else {
+			plan.Dirs[sh] = loc[sh]
+		}
+	}
+	return plan
+}
+
+// completionFiles returns the two scripts (adrm + adrmm) for a shell.
+func completionFiles(shell string) map[string]string {
+	switch shell {
+	case "zsh":
+		return map[string]string{
+			complete.FileName("zsh", "adrm"):  complete.Zsh("adrm"),
+			complete.FileName("zsh", "adrmm"): complete.Zsh("adrmm"),
+		}
+	case "fish":
+		return map[string]string{
+			complete.FileName("fish", "adrm"):  complete.Fish("adrm"),
+			complete.FileName("fish", "adrmm"): complete.Fish("adrmm"),
+		}
+	default:
+		return map[string]string{
+			complete.FileName("bash", "adrm"):  complete.Bash("adrm"),
+			complete.FileName("bash", "adrmm"): complete.Bash("adrmm"),
+		}
+	}
+}
+
 // cmdSetup installs or removes the shell integration.
 func (a *app) cmdSetup(args []string) int {
 	p := newParser()
@@ -40,7 +152,8 @@ func (a *app) cmdSetup(args []string) int {
 		{long: "install"}, {long: "uninstall"}, {long: "status"},
 		{long: "alias"}, {long: "no-alias"},
 		{long: "completion"}, {long: "no-completion"},
-		{long: "cron"}, {long: "no-cron"},
+		{long: "timer"}, {long: "no-timer"},
+		{long: "local"},
 		{long: "purge-home"}, {long: "yes", short: "y"},
 		{long: "shells", takesValue: true},
 	})
@@ -73,38 +186,46 @@ func (a *app) setupInstall(p *parser) int {
 	if err != nil {
 		return a.fail(err)
 	}
-	wantAlias := !p.has("no-alias")
+	// The rm alias is opt-in: by default adrm is reachable as /usr/bin/adrm
+	// and rm keeps its normal behavior.
+	wantAlias := p.has("alias") && !p.has("no-alias")
 	wantCompletion := !p.has("no-completion")
+	wantTimer := p.has("timer") && !p.has("no-timer")
 	shells := a.selectedShells(p)
+	forceLocal := p.has("local")
 
-	// 1. completion scripts
-	compDir := filepath.Join(a.cfg.Home, "completions")
-	if wantCompletion {
-		if err := os.MkdirAll(compDir, 0o700); err != nil {
-			return a.fail(err)
-		}
+	plan := planCompletions(home)
+	if forceLocal {
+		plan = completionPlan{Dirs: map[string]string{}, Global: false, LocalDirs: userCompletionDirs(home)}
 		for _, sh := range shells {
-			var script, name string
-			switch sh {
-			case "zsh":
-				script, name = complete.Zsh(), complete.FileName("zsh")
-			case "fish":
-				script, name = complete.Fish(), complete.FileName("fish")
-			default:
-				script, name = complete.Bash(), complete.FileName("bash")
+			plan.Dirs[sh] = plan.LocalDirs[sh]
+		}
+	}
+
+	// 1. completion scripts: one pair (adrm + adrmm) per shell
+	if wantCompletion {
+		for _, sh := range shells {
+			dir := plan.Dirs[sh]
+			if dir == "" {
+				continue
 			}
-			path := filepath.Join(compDir, name)
-			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return a.fail(err)
 			}
-			fmt.Fprintf(a.out, i18n.Tr("已写入补全脚本: %s\n", "wrote completion script: %s\n"), path)
+			for name, script := range completionFiles(sh) {
+				path := filepath.Join(dir, name)
+				if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+					return a.fail(err)
+				}
+				fmt.Fprintf(a.out, i18n.Tr("已写入补全脚本: %s\n", "wrote completion script: %s\n"), path)
+			}
 		}
 	}
 
 	// 2. init file sourced by every shell block
 	initPath := filepath.Join(a.cfg.Home, "adrm-init.sh")
 	var init strings.Builder
-	fmt.Fprintf(&init, "# adrm shell integration (generated by 'adrm setup --install')\n")
+	fmt.Fprintf(&init, "# adrm shell integration (generated by 'adrmm setup --install')\n")
 	fmt.Fprintf(&init, "export ADRM_HOME=%q\n", a.cfg.Home)
 	if wantAlias {
 		fmt.Fprintf(&init, "alias rm='adrm'\n")
@@ -114,7 +235,8 @@ func (a *app) setupInstall(p *parser) int {
 	}
 	fmt.Fprintf(a.out, i18n.Tr("已写入初始化脚本: %s\n", "wrote init script: %s\n"), initPath)
 
-	// 3. rc file blocks
+	// 3. rc file blocks (ADRM_HOME, optional alias, optional rm completion
+	//    takeover, and the zsh compinit bootstrap when needed)
 	for _, prof := range shellProfiles(home) {
 		if !containsStr(shells, prof.Shell) {
 			continue
@@ -122,16 +244,20 @@ func (a *app) setupInstall(p *parser) int {
 		if _, err := os.Stat(prof.Rc); err != nil && !os.IsNotExist(err) {
 			continue
 		}
-		block := rcBlock(prof, a.cfg.Home, wantAlias, wantCompletion)
+		block := rcBlock(prof, a.cfg.Home, wantAlias, wantCompletion, plan, forceLocal)
 		if err := appendRcBlock(prof.Rc, block); err != nil {
 			return a.fail(err)
 		}
 		fmt.Fprintf(a.out, i18n.Tr("已更新 %s\n", "updated %s\n"), prof.Rc)
 	}
 
-	// 4. optional cron/systemd timer for lazy gc
-	if p.has("cron") {
-		a.installCron()
+	// 4. optional systemd --user timer for lazy gc
+	if wantTimer {
+		a.installTimer()
+	}
+	if plan.Global && !forceLocal {
+		fmt.Fprintln(a.out, i18n.Tr("补全已安装到系统目录, 所有用户可用。",
+			"completions installed system-wide, available to every user."))
 	}
 	fmt.Fprintln(a.out, i18n.Tr("安装完成。打开新终端或执行 'source ~/.bashrc' 后生效。",
 		"done. open a new shell or run 'source ~/.bashrc' to activate."))
@@ -172,18 +298,23 @@ func containsStr(list []string, s string) bool {
 }
 
 // rcBlock renders the managed block for one shell profile.
-func rcBlock(prof shellProfile, home string, wantAlias, wantCompletion bool) string {
+func rcBlock(prof shellProfile, home string, wantAlias, wantCompletion bool, plan completionPlan, forceLocal bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", rcMarkBegin)
-	fmt.Fprintf(&b, "# adrm: shell integration managed by 'adrm setup' (remove with 'adrm setup --uninstall')\n")
+	fmt.Fprintf(&b, "# adrm: shell integration managed by 'adrmm setup' (remove with 'adrmm setup --uninstall')\n")
 	if prof.Fish {
 		fmt.Fprintf(&b, "set -gx ADRM_HOME %q\n", home)
 		if wantAlias {
 			fmt.Fprintf(&b, "alias rm='adrm'\n")
+			// take rm's completion over from /usr/bin/rm
+			fmt.Fprintf(&b, "complete -c rm -w adrm\n")
 		}
-		if wantCompletion {
-			fish := filepath.Join(home, "completions", complete.FileName("fish"))
+		if wantCompletion && forceLocal {
+			// only the per-user fallback needs an explicit source line
+			fish := filepath.Join(plan.Dirs["fish"], complete.FileName("fish", "adrm"))
 			fmt.Fprintf(&b, "test -f %q; and source %q\n", fish, fish)
+			fishm := filepath.Join(plan.Dirs["fish"], complete.FileName("fish", "adrmm"))
+			fmt.Fprintf(&b, "test -f %q; and source %q\n", fishm, fishm)
 		}
 	} else {
 		// POSIX shells (bash/zsh): "[ -r f ] && . f" -- never fish's "; and".
@@ -193,12 +324,36 @@ func rcBlock(prof shellProfile, home string, wantAlias, wantCompletion bool) str
 		if wantCompletion {
 			switch prof.Shell {
 			case "zsh":
-				zsh := filepath.Join(home, "completions", complete.FileName("zsh"))
+				// make sure the completion function exists before it is used,
+				// and that compdef is available for the per-user fpath dir
 				fmt.Fprintf(&b, "(( $+functions[compdef] )) || { autoload -Uz compinit && compinit -u }\n")
+				if forceLocal {
+					fmt.Fprintf(&b, "fpath=(%q $fpath)\n", plan.Dirs["zsh"])
+				}
+				zsh := filepath.Join(plan.Dirs["zsh"], complete.FileName("zsh", "adrm"))
 				fmt.Fprintf(&b, "[ -r %q ] && . %q\n", zsh, zsh)
+				zshm := filepath.Join(plan.Dirs["zsh"], complete.FileName("zsh", "adrmm"))
+				fmt.Fprintf(&b, "[ -r %q ] && . %q\n", zshm, zshm)
 			default:
-				bash := filepath.Join(home, "completions", complete.FileName("bash"))
+				// source unconditionally (not only for --local): the system
+				// completion may be loaded lazily, and _adrm_complete must
+				// exist before it is bound to rm below.
+				bash := filepath.Join(plan.Dirs["bash"], complete.FileName("bash", "adrm"))
 				fmt.Fprintf(&b, "[ -r %q ] && . %q\n", bash, bash)
+				bashm := filepath.Join(plan.Dirs["bash"], complete.FileName("bash", "adrmm"))
+				fmt.Fprintf(&b, "[ -r %q ] && . %q\n", bashm, bashm)
+			}
+		}
+		if wantAlias {
+			switch prof.Shell {
+			case "zsh":
+				// take rm's completion over from /usr/bin/rm
+				fmt.Fprintf(&b, "compdef _adrm rm 2>/dev/null\n")
+			default:
+				// "|| true" keeps the block safe under 'set -e': complete -r
+				// returns 1 when rm has no completion registered yet.
+				fmt.Fprintf(&b, "complete -r rm 2>/dev/null || true\n")
+				fmt.Fprintf(&b, "complete -o default -o filenames -F _adrm_complete rm\n")
 			}
 		}
 	}
@@ -274,15 +429,45 @@ func (a *app) setupUninstall(p *parser) int {
 		}
 		fmt.Fprintf(a.out, i18n.Tr("已清理 %s\n", "cleaned %s\n"), prof.Rc)
 	}
-	// 2. generated files inside the adrm home
-	for _, f := range []string{"adrm-init.sh", "completions"} {
-		path := filepath.Join(a.cfg.Home, f)
-		if err := os.RemoveAll(path); err != nil {
-			return a.fail(err)
+	// 2. completion scripts, wherever they were written
+	removed := 0
+	for _, dirs := range []map[string]string{globalCompletionDirs(), userCompletionDirs(home)} {
+		for _, dir := range dirs {
+			for _, names := range []map[string]string{
+				completionFiles("bash"), completionFiles("zsh"), completionFiles("fish"),
+			} {
+				for name := range names {
+					path := filepath.Join(dir, name)
+					if err := os.Remove(path); err == nil {
+						removed++
+						fmt.Fprintf(a.out, i18n.Tr("已删除补全脚本: %s\n", "removed completion script: %s\n"), path)
+					}
+				}
+			}
 		}
 	}
-	fmt.Fprintf(a.out, i18n.Tr("已删除 %s 下的 shell 集成文件。\n", "removed shell integration files under %s.\n"), a.cfg.Home)
-	// 3. optionally the whole home (the trash itself)
+	// per-user copy under the adrm home (legacy location)
+	for _, sh := range []string{"bash", "zsh", "fish"} {
+		for name := range completionFiles(sh) {
+			path := filepath.Join(a.cfg.Home, "completions", name)
+			if err := os.Remove(path); err == nil {
+				removed++
+				fmt.Fprintf(a.out, i18n.Tr("已删除补全脚本: %s\n", "removed completion script: %s\n"), path)
+			}
+		}
+	}
+	if removed == 0 {
+		fmt.Fprintln(a.out, i18n.Tr("没有找到已安装的补全脚本。", "no installed completion scripts found."))
+	}
+	if err := os.Remove(filepath.Join(a.cfg.Home, "adrm-init.sh")); err == nil {
+		fmt.Fprintln(a.out, i18n.Tr("已删除初始化脚本 adrm-init.sh。", "removed the init script adrm-init.sh."))
+	}
+	if err := os.Remove(filepath.Join(a.cfg.Home, "completions")); err == nil {
+		fmt.Fprintln(a.out, i18n.Tr("已删除补全目录。", "removed the completions directory."))
+	}
+	// 3. systemd user timer
+	a.uninstallTimer()
+	// 4. optionally the whole home (the trash itself)
 	if p.has("purge-home") {
 		if !p.has("yes") {
 			fmt.Fprintf(a.out, i18n.Tr("警告: 将删除整个 adrm 主目录 %s (含回收站内所有文件!)\n",
@@ -301,8 +486,8 @@ func (a *app) setupUninstall(p *parser) int {
 		}
 		fmt.Fprintf(a.out, i18n.Tr("已删除 %s\n", "removed %s\n"), a.cfg.Home)
 	}
-	fmt.Fprintln(a.out, i18n.Tr("卸载完成。如需删除二进制本身, 请手动移除安装路径下的 adrm。",
-		"uninstall done. to remove the binary itself, delete the adrm executable from your install directory."))
+	fmt.Fprintln(a.out, i18n.Tr("卸载完成。如需删除二进制本身, 请手动移除安装路径下的 adrm/adrmm。",
+		"uninstall done. to remove the binaries themselves, delete adrm/adrmm from your install directory."))
 	return 0
 }
 
@@ -315,7 +500,24 @@ func (a *app) setupStatus(p *parser) int {
 	if _, err := os.Stat(a.cfg.ConfigFile); err == nil {
 		fmt.Fprintf(a.out, i18n.Tr("配置文件: %s\n", "config file: %s\n"), a.cfg.ConfigFile)
 	} else {
-		fmt.Fprintln(a.out, i18n.Tr("配置文件: 不存在 (运行 'adrm config --init' 生成)", "config file: missing (run 'adrm config --init')"))
+		fmt.Fprintln(a.out, i18n.Tr("配置文件: 不存在 (运行 'adrmm config --init' 生成)", "config file: missing (run 'adrmm config --init')"))
+	}
+	plan := planCompletions(home)
+	for _, sh := range []string{"bash", "zsh", "fish"} {
+		dir := plan.Dirs[sh]
+		if dir == "" {
+			continue
+		}
+		where := i18n.Tr("用户目录", "user dir")
+		if plan.Global && dir == globalCompletionDirs()[sh] {
+			where = i18n.Tr("系统目录", "system dir")
+		}
+		for name := range completionFiles(sh) {
+			path := filepath.Join(dir, name)
+			if _, err := os.Stat(path); err == nil {
+				fmt.Fprintf(a.out, i18n.Tr("补全 %s: %s [已安装, %s]\n", "completion %s: %s [installed, %s]\n"), sh, path, where)
+			}
+		}
 	}
 	for _, prof := range shellProfiles(home) {
 		data, err := os.ReadFile(prof.Rc)
@@ -328,13 +530,126 @@ func (a *app) setupStatus(p *parser) int {
 			fmt.Fprintf(a.out, i18n.Tr("shell 集成: %s [未安装]\n", "shell integration: %s [not installed]\n"), prof.Rc)
 		}
 	}
+	if u, ok := timerUnitPaths(); ok {
+		for _, p := range u {
+			if _, err := os.Stat(p); err == nil {
+				fmt.Fprintf(a.out, i18n.Tr("定时清理: %s [已安装]\n", "scheduled cleanup: %s [installed]\n"), p)
+			}
+		}
+		if enabled, _ := timerEnabled(); enabled {
+			fmt.Fprintln(a.out, i18n.Tr("定时清理: systemd --user adrm-gc.timer [已启用]",
+				"scheduled cleanup: systemd --user adrm-gc.timer [enabled]"))
+		}
+	}
 	return 0
 }
 
-// installCron adds a daily systemd user timer or crontab entry running `adrm gc --quiet`.
-func (a *app) installCron() {
-	fmt.Fprintln(a.out, i18n.Tr("可选定时清理 (未自动安装, 手动执行其一即可):",
-		"optional scheduled cleanup (not installed automatically; run one of these):"))
-	fmt.Fprintln(a.out, "  systemd: systemd-run --user --on-calendar=daily adrm gc --quiet")
-	fmt.Fprintln(a.out, "  cron:    (crontab -l; echo '0 9 * * * adrm gc --quiet') | crontab -")
+// installTimer installs a systemd --user timer that runs `adrmm gc --quiet`
+// daily. It degrades gracefully when systemd or the user bus is unavailable.
+func (a *app) installTimer() {
+	paths, ok := timerUnitPaths()
+	if !ok {
+		fmt.Fprintln(a.out, i18n.Tr("未找到 systemd 用户目录, 跳过定时清理安装。",
+			"no systemd user directory found, skipping the timer."))
+		a.printTimerHints()
+		return
+	}
+	bin := "adrmm"
+	if exe, err := os.Executable(); err == nil {
+		bin = exe
+	}
+	service := fmt.Sprintf(`[Unit]
+Description=adrm trash bin cleanup
+
+[Service]
+Type=oneshot
+ExecStart=%s gc --quiet
+`, bin)
+	timer := `[Unit]
+Description=Daily adrm trash bin cleanup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+`
+	for path, content := range map[string]string{paths[0]: service, paths[1]: timer} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			a.fail(err)
+			return
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			a.fail(err)
+			return
+		}
+		fmt.Fprintf(a.out, i18n.Tr("已写入 %s\n", "wrote %s\n"), path)
+	}
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		fmt.Fprintln(a.out, i18n.Tr("未找到 systemctl, 已写入单元文件但未启用。",
+			"systemctl not found; unit files written but not enabled."))
+		return
+	}
+	if out, err := exec.Command("systemctl", "--user", "daemon-reload").CombinedOutput(); err != nil {
+		fmt.Fprintf(a.out, i18n.Tr("daemon-reload 失败(%v), 未启用定时器。\n", "daemon-reload failed (%v), timer not enabled.\n"), err)
+		_ = out
+		return
+	}
+	if out, err := exec.Command("systemctl", "--user", "enable", "--now", "adrm-gc.timer").CombinedOutput(); err != nil {
+		fmt.Fprintf(a.out, i18n.Tr("启用定时器失败(可能需要登录会话/systemd --user): %v\n",
+			"failed to enable the timer (a login session with systemd --user may be needed): %v\n"), err)
+		_ = out
+		return
+	}
+	fmt.Fprintln(a.out, i18n.Tr("已启用 systemd --user 定时清理 (每天一次)。",
+		"enabled the systemd --user cleanup timer (runs daily)."))
+}
+
+func (a *app) uninstallTimer() {
+	paths, ok := timerUnitPaths()
+	if !ok {
+		return
+	}
+	if _, err := exec.LookPath("systemctl"); err == nil {
+		_, _ = exec.Command("systemctl", "--user", "disable", "--now", "adrm-gc.timer").CombinedOutput()
+		_, _ = exec.Command("systemctl", "--user", "daemon-reload").CombinedOutput()
+	}
+	for _, p := range paths {
+		if err := os.Remove(p); err == nil {
+			fmt.Fprintf(a.out, i18n.Tr("已删除 %s\n", "removed %s\n"), p)
+		}
+	}
+}
+
+// timerUnitPaths returns the service and timer unit paths for this user.
+func timerUnitPaths() ([]string, bool) {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		h, err := userHomeDir()
+		if err != nil {
+			return nil, false
+		}
+		base = filepath.Join(h, ".config")
+	}
+	dir := filepath.Join(base, "systemd", "user")
+	return []string{
+		filepath.Join(dir, "adrm-gc.service"),
+		filepath.Join(dir, "adrm-gc.timer"),
+	}, true
+}
+
+func timerEnabled() (bool, error) {
+	out, err := exec.Command("systemctl", "--user", "is-enabled", "adrm-gc.timer").CombinedOutput()
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(string(out), "enabled"), nil
+}
+
+func (a *app) printTimerHints() {
+	fmt.Fprintln(a.out, i18n.Tr("可选定时清理 (手动执行其一即可):",
+		"optional scheduled cleanup (run one of these):"))
+	fmt.Fprintln(a.out, "  systemd: systemd-run --user --on-calendar=daily adrmm gc --quiet")
+	fmt.Fprintln(a.out, "  cron:    (crontab -l; echo '0 9 * * * adrmm gc --quiet') | crontab -")
 }

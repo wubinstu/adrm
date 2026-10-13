@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // runCLI invokes the CLI in a sandboxed home directory.
@@ -18,7 +20,17 @@ func runCLI(t *testing.T, home string, args ...string) (int, string, string) {
 	t.Setenv("ADRM_HOME", home)
 	t.Setenv("ADRM_LANG", "en")
 	var out, errb bytes.Buffer
-	code := Run(args, strings.NewReader(""), &out, &errb)
+	code := Run(args, strings.NewReader(""), &out, &errb, ModeDelete)
+	return code, out.String(), errb.String()
+}
+
+// runMgr runs the adrmm (management) face.
+func runMgr(t *testing.T, home string, args ...string) (int, string, string) {
+	t.Helper()
+	t.Setenv("ADRM_HOME", home)
+	t.Setenv("ADRM_LANG", "en")
+	var out, errb bytes.Buffer
+	code := Run(args, strings.NewReader(""), &out, &errb, ModeManage)
 	return code, out.String(), errb.String()
 }
 
@@ -27,7 +39,17 @@ func runCLIStdin(t *testing.T, home, stdin string, args ...string) (int, string,
 	t.Setenv("ADRM_HOME", home)
 	t.Setenv("ADRM_LANG", "en")
 	var out, errb bytes.Buffer
-	code := Run(args, strings.NewReader(stdin), &out, &errb)
+	code := Run(args, strings.NewReader(stdin), &out, &errb, ModeDelete)
+	return code, out.String(), errb.String()
+}
+
+// runMgrStdin runs the adrmm (management) face with piped stdin.
+func runMgrStdin(t *testing.T, home, stdin string, args ...string) (int, string, string) {
+	t.Helper()
+	t.Setenv("ADRM_HOME", home)
+	t.Setenv("ADRM_LANG", "en")
+	var out, errb bytes.Buffer
+	code := Run(args, strings.NewReader(stdin), &out, &errb, ModeManage)
 	return code, out.String(), errb.String()
 }
 
@@ -58,12 +80,12 @@ func TestLifecycle(t *testing.T) {
 		t.Error("f1 should be gone from the work dir")
 	}
 
-	code, out, _ = runCLI(t, home, "ls", "--json")
+	code, out, _ = runMgr(t, home, "ls", "--json")
 	if code != 0 || !strings.Contains(out, `"id": 1`) || !strings.Contains(out, `"id": 2`) {
 		t.Fatalf("ls --json: code=%d out=%q", code, out)
 	}
 
-	code, out, _ = runCLI(t, home, "restore", "2")
+	code, out, _ = runMgr(t, home, "restore", "2")
 	if code != 0 || !strings.Contains(out, "restored") {
 		t.Fatalf("restore: %q", out)
 	}
@@ -74,7 +96,7 @@ func TestLifecycle(t *testing.T) {
 		t.Error("f1 should still be in the trash")
 	}
 
-	code, out, _ = runCLI(t, home, "purge", "--all", "--yes")
+	code, out, _ = runMgr(t, home, "purge", "--all", "--yes")
 	if code != 0 || !strings.Contains(out, "purged 1") {
 		t.Fatalf("purge: %q", out)
 	}
@@ -83,7 +105,7 @@ func TestLifecycle(t *testing.T) {
 	}
 
 	// the reflog keeps everything, even for purged items
-	code, out, _ = runCLI(t, home, "log", "--json")
+	code, out, _ = runMgr(t, home, "log", "--json")
 	if code != 0 {
 		t.Fatalf("log: %d", code)
 	}
@@ -105,14 +127,14 @@ func TestIDsNeverReused(t *testing.T) {
 		touch(t, f)
 		runCLI(t, home, f)
 	}
-	runCLI(t, home, "purge", "1", "--yes")
+	runMgr(t, home, "purge", "1", "--yes")
 	f := filepath.Join(work, "new.txt")
 	touch(t, f)
 	code, out, _ := runCLI(t, home, f)
 	if code != 0 || !strings.Contains(out, "recycled") {
 		t.Fatalf("recycle new: %d %q", code, out)
 	}
-	_, out, _ = runCLI(t, home, "ls", "--json")
+	_, out, _ = runMgr(t, home, "ls", "--json")
 	if strings.Contains(out, `"id": 1`) {
 		t.Errorf("id 1 must not be reused after purge: %s", out)
 	}
@@ -127,13 +149,19 @@ func TestStrictValidation(t *testing.T) {
 	f1 := filepath.Join(work, "1.txt")
 	touch(t, f1)
 
-	// dangling expiry token: nothing may be recycled
-	code, _, _ := runCLI(t, home, f1, "+2d")
+	// a dangling expiry among several is ambiguous: nothing may be recycled
+	code, _, _ := runCLI(t, home, "+2d", f1, "+3d")
 	if code != 2 {
 		t.Fatalf("dangling expiry should exit 2, got %d", code)
 	}
 	if _, err := os.Stat(f1); err != nil {
 		t.Errorf("file must not be recycled: %v", err)
+	}
+	// a single trailing expiry is valid and applies to the whole command
+	f2 := filepath.Join(work, "2.txt")
+	touch(t, f2)
+	if code, _, _ := runCLI(t, home, f2, "+2d"); code != 0 {
+		t.Errorf("single trailing expiry should be accepted, got %d", code)
 	}
 	// unknown option
 	code, _, _ = runCLI(t, home, "--bogus", f1)
@@ -160,7 +188,7 @@ func TestDurationBinding(t *testing.T) {
 	if code, _, _ := runCLI(t, home, f1, "+1d", f2); code != 0 {
 		t.Fatal("recycle failed")
 	}
-	_, out, _ := runCLI(t, home, "ls", "--json")
+	_, out, _ := runMgr(t, home, "ls", "--json")
 	// both items exist with different expiry: 1d for f2, default for f1
 	m1 := regexp.MustCompile(`"id": 1,\s*"path": "[^"]*1",[\s\S]*?"expire_at": (\d+)`)
 	m2 := regexp.MustCompile(`"id": 2,\s*"path": "[^"]*2",[\s\S]*?"expire_at": (\d+)`)
@@ -171,6 +199,62 @@ func TestDurationBinding(t *testing.T) {
 	}
 	if g1[1] == g2[1] {
 		t.Errorf("f2 should expire sooner than f1: %s", out)
+	}
+}
+
+// TestTrailingExpiry pins the two spellings of the expiry argument: it may
+// precede the files it applies to (right-associative) or sit alone at the end
+// of the command line, where it applies to every file in the command. More
+// than one expiry with a dangling one stays a hard error.
+func TestTrailingExpiry(t *testing.T) {
+	home := newSandbox(t)
+	work := t.TempDir()
+
+	// 1. trailing single expiry applies to the whole command
+	f := filepath.Join(work, "a.txt")
+	touch(t, f)
+	if code, _, errS := runCLI(t, home, f, "--deadline", "2027/1/1 03:45:01"); code != 0 {
+		t.Fatalf("trailing --deadline should work: %q", errS)
+	}
+	_, out, _ := runMgr(t, home, "ls", "--json")
+	want := time.Date(2027, 1, 1, 3, 45, 1, 0, time.Local).Unix()
+	if !strings.Contains(out, fmt.Sprintf(`"expire_at": %d`, want)) {
+		t.Errorf("trailing --deadline not applied: %s", out)
+	}
+
+	// 2. the same for a trailing +Nd token
+	f2 := filepath.Join(work, "b.txt")
+	touch(t, f2)
+	if code, _, errS := runCLI(t, home, f2, "+1d"); code != 0 {
+		t.Fatalf("trailing +1d should work: %q", errS)
+	}
+
+	// 3. right-associative: the expiry applies to what follows it
+	f3, f4 := filepath.Join(work, "c.txt"), filepath.Join(work, "d.txt")
+	touch(t, f3)
+	touch(t, f4)
+	if code, _, _ := runCLI(t, home, "+2d", f3, f4); code != 0 {
+		t.Fatal("leading +2d failed")
+	}
+	_, out, _ = runMgr(t, home, "ls", "--name", "c.txt", "--json")
+	if !strings.Contains(out, fmt.Sprintf(`"expire_at": %d`, time.Now().Add(48*time.Hour).Unix()/10*10)) &&
+		!strings.Contains(out, `"expire_at"`) {
+		t.Errorf("leading +2d: %s", out)
+	}
+
+	// 4. a dangling expiry among several is still an error, and nothing runs
+	f5, f6, f7 := filepath.Join(work, "e.txt"), filepath.Join(work, "f.txt"), filepath.Join(work, "g.txt")
+	touch(t, f5)
+	touch(t, f6)
+	touch(t, f7)
+	code, _, _ := runCLI(t, home, "+1d", f5, "+2d", f6, "+3d", f7, "+4d")
+	if code != 2 {
+		t.Errorf("dangling expiry among several should exit 2, got %d", code)
+	}
+	for _, p := range []string{f5, f6, f7} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("nothing may be recycled on a usage error: %s", p)
+		}
 	}
 }
 
@@ -221,20 +305,20 @@ func TestRestoreReplace(t *testing.T) {
 	runCLI(t, home, f)
 	// recreate a conflicting file
 	touch(t, f)
-	if code, _, _ := runCLI(t, home, "restore", "--last"); code == 0 {
+	if code, _, _ := runMgr(t, home, "restore", "--last"); code == 0 {
 		t.Fatal("restore over an existing file must fail")
 	}
 	if data, _ := os.ReadFile(f); string(data) != "x" {
 		t.Error("conflicting file must be untouched")
 	}
-	if code, out, _ := runCLI(t, home, "restore", "--last", "--replace"); code != 0 || !strings.Contains(out, "restored") {
+	if code, out, _ := runMgr(t, home, "restore", "--last", "--replace"); code != 0 || !strings.Contains(out, "restored") {
 		t.Fatalf("restore --replace: %d %q", code, out)
 	}
 	// the conflicting file went to the trash first
 	if _, err := os.Stat(f); err != nil {
 		t.Errorf("restored file missing: %v", err)
 	}
-	_, logout, _ := runCLI(t, home, "log", "--json")
+	_, logout, _ := runMgr(t, home, "log", "--json")
 	if !strings.Contains(logout, `"op": "recycle"`) {
 		t.Errorf("conflict should have been recycled: %s", logout)
 	}
@@ -252,7 +336,7 @@ func TestSymlinkRestore(t *testing.T) {
 	if code, _, _ := runCLI(t, home, link); code != 0 {
 		t.Fatal("recycle link failed")
 	}
-	if code, out, _ := runCLI(t, home, "restore", "--last"); code != 0 || !strings.Contains(out, "restored") {
+	if code, out, _ := runMgr(t, home, "restore", "--last"); code != 0 || !strings.Contains(out, "restored") {
 		t.Fatalf("restore link: %d %q", code, out)
 	}
 	fi, err := os.Lstat(link)
@@ -279,7 +363,7 @@ func TestSpecialBitsRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	runCLI(t, home, f)
-	runCLI(t, home, "restore", "--last")
+	runMgr(t, home, "restore", "--last")
 	fi, err := os.Stat(f)
 	if err != nil {
 		t.Fatal(err)
@@ -384,28 +468,28 @@ func TestFiltersAndSort(t *testing.T) {
 	small := filepath.Join(work, "small.txt")
 	touch(t, small)
 	runCLI(t, home, big, small)
-	_, out, _ := runCLI(t, home, "ls", "--size", "+1k", "--json")
+	_, out, _ := runMgr(t, home, "ls", "--size", "+1k", "--json")
 	if !strings.Contains(out, "big.bin") || strings.Contains(out, "small.txt") {
 		t.Errorf("--size +1k: %s", out)
 	}
-	_, out, _ = runCLI(t, home, "ls", "--name", "SMALL", "--json")
+	_, out, _ = runMgr(t, home, "ls", "--name", "SMALL", "--json")
 	if !strings.Contains(out, "small.txt") || strings.Contains(out, "big.bin") {
 		t.Errorf("--name (case-insensitive): %s", out)
 	}
-	_, out, _ = runCLI(t, home, "ls", "--expired", "--json")
+	_, out, _ = runMgr(t, home, "ls", "--expired", "--json")
 	if strings.Contains(out, "big.bin") {
 		t.Errorf("nothing should be expired: %s", out)
 	}
-	_, out, _ = runCLI(t, home, "ls", "--last", "1", "--json")
+	_, out, _ = runMgr(t, home, "ls", "--last", "1", "--json")
 	if strings.Count(out, `"id":`) != 1 {
 		t.Errorf("--last 1 should print one row: %s", out)
 	}
 	// unknown sort field is a usage error
-	if code, _, _ := runCLI(t, home, "ls", "--sort", "bogus"); code != 2 {
+	if code, _, _ := runMgr(t, home, "ls", "--sort", "bogus"); code != 2 {
 		t.Errorf("unknown sort field should exit 2, got %d", code)
 	}
 	// unknown enum value
-	if code, _, _ := runCLI(t, home, "ls", "--state", "bogus"); code != 2 {
+	if code, _, _ := runMgr(t, home, "ls", "--state", "bogus"); code != 2 {
 		t.Errorf("unknown state should exit 2, got %d", code)
 	}
 }
@@ -415,22 +499,36 @@ func TestEnglishIsPureASCII(t *testing.T) {
 	work := t.TempDir()
 	touch(t, filepath.Join(work, "a.txt"))
 	runCLI(t, home, filepath.Join(work, "a.txt"))
-	// exercise every command that produces human-readable output
+	// the delete face keeps its own --help/--version
+	for _, args := range [][]string{{"--help"}, {"--version"}, {"-h"}} {
+		_, out, errS := runCLI(t, home, args...)
+		checkASCII(t, args, out, errS)
+	}
+	// the management face: every command that produces human-readable output
 	cmds := [][]string{
 		{"ls"}, {"log"}, {"stats"}, {"doctor"}, {"config", "--show"},
-		{"ls", "--help"}, {"help"}, {"--help"}, {"version"}, {"gc", "--dry-run"},
+		{"ls", "--help"}, {"help"}, {"version"}, {"gc", "--dry-run"},
 		{"restore", "--help"}, {"purge", "--help"}, {"setup", "--status"},
-		{"completions", "bash"}, {"completions", "zsh"}, {"completions", "fish"},
+		{"setup", "--help"}, {"completions", "bash"}, {"completions", "zsh"},
+		{"completions", "fish"}, {"db", "--path"}, {"undo", "--help"},
+		{"empty", "--help"}, {"gc", "--help"}, {"log", "--help"},
 	}
 	for _, args := range cmds {
-		_, out, errS := runCLI(t, home, args...)
-		for label, s := range map[string]string{"stdout": out, "stderr": errS} {
-			for i := 0; i < len(s); i++ {
-				if s[i] > 127 {
-					t.Errorf("%v (%s) produced non-ASCII byte 0x%02x at %d: %q",
-						args, label, s[i], i, s[max(0, i-20):min(len(s), i+20)])
-					break
-				}
+		_, out, errS := runMgr(t, home, args...)
+		checkASCII(t, args, out, errS)
+	}
+}
+
+// checkASCII fails when any output byte is non-ASCII: the English face must
+// render on the oldest terminals.
+func checkASCII(t *testing.T, args []string, out, errS string) {
+	t.Helper()
+	for label, s := range map[string]string{"stdout": out, "stderr": errS} {
+		for i := 0; i < len(s); i++ {
+			if s[i] > 127 {
+				t.Errorf("%v (%s) produced non-ASCII byte 0x%02x at %d: %q",
+					args, label, s[i], i, s[max(0, i-20):min(len(s), i+20)])
+				break
 			}
 		}
 	}
@@ -443,11 +541,27 @@ func TestCompletionCandidates(t *testing.T) {
 	runCLI(t, home, filepath.Join(work, "a.txt"))
 
 	run := func(args ...string) string {
-		_, out, _ := runCLI(t, home, append([]string{"__complete", "bash"}, args...)...)
+		_, out, _ := runMgr(t, home, append([]string{"__complete", "bash"}, args...)...)
 		return out
 	}
 	if out := run(); !strings.Contains(out, "restore") || !strings.Contains(out, "purge") {
 		t.Errorf("first word should offer subcommands: %q", out)
+	}
+	// the management face must never offer file names alongside subcommands
+	if out := run(); strings.Contains(out, "a.txt") {
+		t.Errorf("adrmm must not complete files: %q", out)
+	}
+	// the delete face must never offer subcommands, only its own options
+	_, delOut, _ := runCLI(t, home, append([]string{"__complete", "bash"}, "-")...)
+	if strings.Contains(delOut, "restore") || strings.Contains(delOut, "purge") {
+		t.Errorf("adrm must not complete subcommands: %q", delOut)
+	}
+	if !strings.Contains(delOut, "--deadline") || !strings.Contains(delOut, "--recursive") {
+		t.Errorf("adrm should complete its own options: %q", delOut)
+	}
+	// and no file candidates either (the shell supplies those)
+	if _, out2, _ := runCLI(t, home, append([]string{"__complete", "bash"}, "")...); strings.TrimSpace(out2) != "" {
+		t.Errorf("adrm must not complete bare words itself: %q", out2)
 	}
 	if out := run("re"); !strings.Contains(out, "restore") {
 		t.Errorf("prefix re should offer restore: %q", out)
@@ -473,9 +587,63 @@ func TestCompletionCandidates(t *testing.T) {
 	}
 }
 
+// TestDeadlineFormats locks in every date/time spelling --deadline accepts,
+// including the exact moment each one resolves to.
+func TestDeadlineFormats(t *testing.T) {
+	home := newSandbox(t)
+	work := t.TempDir()
+	cases := []struct{ in, want string }{
+		{"2027/01/01", "2027-01-01 00:00:00"},
+		{"2027/1/01", "2027-01-01 00:00:00"},
+		{"2027/01/1", "2027-01-01 00:00:00"},
+		{"2027/1/1", "2027-01-01 00:00:00"},
+		{"2027_01_01", "2027-01-01 00:00:00"},
+		{"2027_1_01", "2027-01-01 00:00:00"},
+		{"2027_01_1", "2027-01-01 00:00:00"},
+		{"2027_1_1", "2027-01-01 00:00:00"},
+		{"2027-01-01", "2027-01-01 00:00:00"},
+		{"2027-1-01", "2027-01-01 00:00:00"},
+		{"2027-01-1", "2027-01-01 00:00:00"},
+		{"2027-1-1", "2027-01-01 00:00:00"},
+		{"2027/1/1 3:45", "2027-01-01 03:45:00"},
+		{"2027/1/1 03:45", "2027-01-01 03:45:00"},
+		{"2027/1/1 03:45:01", "2027-01-01 03:45:01"},
+		{"2027_1_1 3:45", "2027-01-01 03:45:00"},
+		{"2027_1_1 03:45:01", "2027-01-01 03:45:01"},
+		{"2027-1-1 03:45:01", "2027-01-01 03:45:01"},
+	}
+	for i, c := range cases {
+		f := filepath.Join(work, fmt.Sprintf("f%d.txt", i))
+		touch(t, f)
+		// --until must stay accepted as an alias of --deadline
+		opt := "--deadline"
+		if i%3 == 0 {
+			opt = "--until"
+		}
+		if code, out, errS := runCLI(t, home, opt, c.in, f); code != 0 {
+			t.Fatalf("%s %q: %d %q %q", opt, c.in, code, out, errS)
+		}
+		_, out, _ := runMgr(t, home, "ls", "--json")
+		var items []struct {
+			ExpireAt int64 `json:"expire_at"`
+		}
+		if err := json.Unmarshal([]byte(out), &items); err != nil {
+			t.Fatalf("ls --json: %v (%s)", err, out)
+		}
+		want, err := time.ParseInLocation("2006-01-02 15:04:05", c.want, time.Local)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if items[0].ExpireAt != want.Unix() {
+			t.Errorf("%s %q: expire_at=%d want=%d (%s)", opt, c.in,
+				items[0].ExpireAt, want.Unix(), c.want)
+		}
+	}
+}
+
 func TestConfigInit(t *testing.T) {
 	home := newSandbox(t)
-	code, out, _ := runCLI(t, home, "config", "--init")
+	code, out, _ := runMgr(t, home, "config", "--init")
 	if code != 0 {
 		t.Fatalf("config --init: %d %q", code, out)
 	}
@@ -487,14 +655,14 @@ func TestConfigInit(t *testing.T) {
 		t.Errorf("template missing keys: %s", data)
 	}
 	// a second init refuses to overwrite
-	if code, _, _ := runCLI(t, home, "config", "--init"); code == 0 {
+	if code, _, _ := runMgr(t, home, "config", "--init"); code == 0 {
 		t.Error("second --init should fail without --force")
 	}
-	if code, _, _ := runCLI(t, home, "config", "--init", "--force"); code != 0 {
+	if code, _, _ := runMgr(t, home, "config", "--init", "--force"); code != 0 {
 		t.Error("--force should overwrite")
 	}
 	// validate
-	if code, _, _ := runCLI(t, home, "config", "--validate"); code != 0 {
+	if code, _, _ := runMgr(t, home, "config", "--validate"); code != 0 {
 		t.Error("generated config must validate")
 	}
 }
@@ -507,20 +675,33 @@ func TestSetupInstallUninstall(t *testing.T) {
 	if err := os.WriteFile(rc, []byte("# my rc\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, _ := runCLI(t, home, "setup", "--install", "--shells", "bash"); code != 0 {
+	if code, _, _ := runMgr(t, home, "setup", "--install", "--shells", "bash", "--local"); code != 0 {
 		t.Fatal("setup --install failed")
 	}
 	data, _ := os.ReadFile(rc)
 	if !strings.Contains(string(data), rcMarkBegin) || !strings.Contains(string(data), "ADRM_HOME") {
 		t.Fatalf("rc not updated: %s", data)
 	}
-	if _, err := os.Stat(filepath.Join(home, "completions", "adrm.bash")); err != nil {
-		t.Errorf("completion script missing: %v", err)
+	// completions land in the per-user directory, one pair per binary
+	userComp := filepath.Join(fakeUser, ".local", "share", "bash-completion", "completions")
+	for _, name := range []string{"adrm.bash", "adrmm.bash"} {
+		if _, err := os.Stat(filepath.Join(userComp, name)); err != nil {
+			t.Errorf("completion script missing: %v", err)
+		}
+	}
+	// the two scripts must not share a vocabulary
+	adrmScript, _ := os.ReadFile(filepath.Join(userComp, "adrm.bash"))
+	adrmmScript, _ := os.ReadFile(filepath.Join(userComp, "adrmm.bash"))
+	if strings.Contains(string(adrmScript), "subcommand") {
+		t.Errorf("adrm.bash must not mention subcommands:\n%s", adrmScript)
+	}
+	if !strings.Contains(string(adrmmScript), "__nofiles__") {
+		t.Errorf("adrmm.bash must suppress file completion:\n%s", adrmmScript)
 	}
 	if _, err := os.Stat(filepath.Join(home, "adrm-init.sh")); err != nil {
 		t.Errorf("init script missing: %v", err)
 	}
-	if code, _, _ := runCLI(t, home, "setup", "--uninstall"); code != 0 {
+	if code, _, _ := runMgr(t, home, "setup", "--uninstall"); code != 0 {
 		t.Fatal("setup --uninstall failed")
 	}
 	data, _ = os.ReadFile(rc)
@@ -533,8 +714,13 @@ func TestSetupInstallUninstall(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "completions")); !os.IsNotExist(err) {
 		t.Error("completions dir should be gone")
 	}
+	for _, name := range []string{"adrm.bash", "adrmm.bash"} {
+		if _, err := os.Stat(filepath.Join(userComp, name)); !os.IsNotExist(err) {
+			t.Errorf("completion script should be removed: %s", name)
+		}
+	}
 	// status after uninstall
-	if code, out, _ := runCLI(t, home, "setup", "--status"); code != 0 || !strings.Contains(out, "not installed") {
+	if code, out, _ := runMgr(t, home, "setup", "--status"); code != 0 || !strings.Contains(out, "not installed") {
 		t.Errorf("status: %d %q", code, out)
 	}
 }
@@ -546,7 +732,7 @@ func TestSetupBlockIsValidBash(t *testing.T) {
 	home := newSandbox(t)
 	fakeUser := t.TempDir()
 	t.Setenv("HOME", fakeUser)
-	if code, _, _ := runCLI(t, home, "setup", "--install", "--shells", "bash"); code != 0 {
+	if code, _, _ := runMgr(t, home, "setup", "--install", "--shells", "bash", "--local", "--alias"); code != 0 {
 		t.Fatal("setup --install failed")
 	}
 	rc := filepath.Join(fakeUser, ".bashrc")
@@ -598,20 +784,20 @@ func TestDBResetSafety(t *testing.T) {
 	touch(t, filepath.Join(work, "a.txt"))
 	runCLI(t, home, filepath.Join(work, "a.txt"))
 	// with items in the bin and a declined prompt, nothing is reset
-	code, _, _ := runCLIStdin(t, home, "n\n", "db", "--reset")
+	code, _, _ := runMgrStdin(t, home, "n\n", "db", "--reset")
 	if code != 0 {
 		t.Fatalf("declined reset should exit 0: %d", code)
 	}
-	_, out, _ := runCLI(t, home, "ls", "--json")
+	_, out, _ := runMgr(t, home, "ls", "--json")
 	if !strings.Contains(out, "a.txt") {
 		t.Errorf("item must survive a declined reset: %s", out)
 	}
 	// purge everything, then reset works
-	runCLI(t, home, "purge", "--all", "--yes")
-	if code, _, _ := runCLI(t, home, "db", "--reset", "--yes"); code != 0 {
+	runMgr(t, home, "purge", "--all", "--yes")
+	if code, _, _ := runMgr(t, home, "db", "--reset", "--yes"); code != 0 {
 		t.Fatal("reset failed")
 	}
-	_, out, _ = runCLI(t, home, "log", "--json")
+	_, out, _ = runMgr(t, home, "log", "--json")
 	if strings.Contains(out, `"op": "recycle"`) {
 		t.Errorf("history should be cleared: %s", out)
 	}
