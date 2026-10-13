@@ -1,6 +1,6 @@
 // Command adrm is a safer replacement for rm: everything you delete goes to a
 // per-user trash directory and can be listed, restored, or purged later with
-// the companion binary adrmm.
+// the companion binary admr.
 package main
 
 import (

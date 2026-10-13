@@ -7,7 +7,7 @@
 | 二进制 | 作用 | 补全行为 |
 |--------|------|----------|
 | `adrm` | 删除文件，参数兼容 `/bin/rm` | 只补全**文件路径**（和 `rm` 一样） |
-| `adrmm` | 管理回收站（查看/还原/清理/配置） | 只补全**子命令**（和 `git` 一样） |
+| `admr` | 管理回收站（查看/还原/清理/配置） | 只补全**子命令**（和 `git` 一样） |
 
 这样 `rm <TAB>` 永远不会和子命令混在一起，两个词表严格分离。
 
@@ -23,16 +23,16 @@
 |------|------|------|
 | 回收文件/目录 | `adrm <文件...>` | rm 兼容参数 `-f -i -I -r -R -d -v --`，整条命令先校验后执行 |
 | 设置有效期 | `+3d` / `--for 3d` / `--deadline "2027/1/1"` | 向右亲和；未指定默认 30 天 |
-| 查看回收站 | `adrmm ls` | 表格/JSON，可按名称、大小、时间、状态过滤排序 |
-| 操作历史 | `adrmm log` | 只增不改的流水账（类似 git reflog），文件真删后记录仍在 |
-| 还原 | `adrmm restore` / `adrmm undo` | 还原属主、属组、权限位（含 suid/sgid/sticky）、时间戳 |
-| 彻底清理 | `adrmm purge` / `gc` / `empty` | 单项、按条件、清空、清过期 |
-| 统计 | `adrmm stats` | 当前项数、占用、历史操作计数 |
-| 配置 | `adrmm config --init` | 生成带注释的配置模板 |
-| 补全 | `adrmm completions bash\|zsh\|fish` | 内嵌三种 shell 补全脚本 |
-| 安装集成 | `adrmm setup --install` | 全局补全、可选 rm 别名、可选定时清理 |
-| 自检 | `adrmm doctor` | 数据库完整性、磁盘对账、孤立文件、权限 |
-| 数据库 | `adrmm db --path / --reset` | 位置查询、安全重置 |
+| 查看回收站 | `admr ls` | 表格/JSON，可按名称、大小、时间、状态过滤排序 |
+| 操作历史 | `admr log` | 只增不改的流水账（类似 git reflog），文件真删后记录仍在 |
+| 还原 | `admr restore` / `admr undo` | 还原属主、属组、权限位（含 suid/sgid/sticky）、时间戳 |
+| 彻底清理 | `admr purge` / `gc` / `empty` | 单项、按条件、清空、清过期 |
+| 统计 | `admr stats` | 当前项数、占用、历史操作计数 |
+| 配置 | `admr config --init` | 生成带注释的配置模板 |
+| 补全 | `admr completions bash\|zsh\|fish` | 内嵌三种 shell 补全脚本 |
+| 安装集成 | `admr setup --install` | 全局补全、可选 rm 别名、可选定时清理 |
+| 自检 | `admr doctor` | 数据库完整性、磁盘对账、孤立文件、权限 |
+| 数据库 | `admr db --path / --reset` | 位置查询、安全重置 |
 
 ---
 
@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh | bas
 
 默认行为（`root` 或 `/usr/bin` 可写时）：
 
-- 两个二进制安装到 `/usr/bin/adrm`、`/usr/bin/adrmm`
+- 两个二进制安装到 `/usr/bin/adrm`、`/usr/bin/admr`
 - 补全脚本安装到系统目录（bash/zsh/fish 各自的全局目录），所有用户可用
 - **不**创建 `rm` 别名，`rm` 行为完全不变
 - 每个用户第一次运行时自动创建自己的 `~/.adrm`
@@ -85,7 +85,7 @@ adrm -r old-project/
 ```
 
 ```bash
-adrmm ls
+admr ls
 ```
 
 ```
@@ -98,7 +98,7 @@ adrmm ls
 ```
 
 ```bash
-adrmm restore 1
+admr restore 1
 ```
 
 ```
@@ -169,7 +169,7 @@ adrm: 错误: 行尾的持续时间参数没有对应的文件 (持续时间向�
 ## 第二章 · 有效期
 
 回收站里的东西不会永久保存。默认 30 天后过期（`retention_days` 可改），过期后由
-`adrmm gc` 或安装的定时器清理。
+`admr gc` 或安装的定时器清理。
 
 ### 三种写法
 
@@ -241,12 +241,12 @@ adrm file1 --deadline "2027-1-1 03:45:01"   有效直到 2027年1月1日 03:45:0
 
 没有守护进程，过期文件不会被实时删除。清理发生在：
 
-- 手动 `adrmm gc`
+- 手动 `admr gc`
 - 运行其他命令时顺带惰性清理（有产出才提示一行）
 - 安装了 `--timer` 时由 systemd 每天执行一次
 
 ```bash
-adrmm gc
+admr gc
 ```
 
 ```
@@ -258,7 +258,7 @@ adrmm gc
 ```
 
 ```bash
-adrmm gc --dry-run
+admr gc --dry-run
 ```
 
 ```
@@ -267,31 +267,31 @@ adrmm gc --dry-run
 ```
 
 ```bash
-adrmm gc --yes
+admr gc --yes
 ```
 
 （`--yes` 跳过询问直接清理，适合脚本和定时器。）
 
 ---
 
-## 第三章 · 查看回收站（adrmm ls）
+## 第三章 · 查看回收站（admr ls）
 
 ```bash
-adrmm ls
+admr ls
 ```
 
 默认列出当前回收站所有项，最新在上。
 
 ```bash
-adrmm ls --state exception
+admr ls --state exception
 ```
 
 ```bash
-adrmm ls --expired
+admr ls --expired
 ```
 
 ```bash
-adrmm ls --json
+admr ls --json
 ```
 
 ```json
@@ -321,13 +321,13 @@ JSON 适合脚本消费；列集合可在配置文件里自定义（`columns`）
 
 ---
 
-## 第四章 · 操作历史（adrmm log）
+## 第四章 · 操作历史（admr log）
 
 回收站只反映「现在有什么」，`log` 是**只增不改**的流水账：每次回收、还原、清理、
 过期、重置都记一条，文件被真正删除后记录依然在。
 
 ```bash
-adrmm log
+admr log
 ```
 
 ```
@@ -340,28 +340,28 @@ adrmm log
 ```
 
 ```bash
-adrmm log --op purge
+admr log --op purge
 ```
 
 ```bash
-adrmm log --since 3d --deadline 2027/1/1
+admr log --since 3d --deadline 2027/1/1
 ```
 
 ```bash
-adrmm log --name report --json
+admr log --name report --json
 ```
 
 编号（`seq`）单调递增、永不复用，可以放心用来引用历史。
 
 ---
 
-## 第五章 · 还原（adrmm restore / undo）
+## 第五章 · 还原（admr restore / undo）
 
 还原会把文件放回原始路径，并恢复**属主、属组、全部权限位（含 suid/sgid/sticky）、
 修改时间**。
 
 ```bash
-adrmm restore 1
+admr restore 1
 ```
 
 ```
@@ -369,7 +369,7 @@ adrmm restore 1
 ```
 
 ```bash
-adrmm undo
+admr undo
 ```
 
 ```
@@ -381,17 +381,17 @@ adrmm undo
 其他用法：
 
 ```bash
-adrmm restore --last          # 最近一个
-adrmm restore 1 3 5           # 多个编号
-adrmm restore 1-20            # 编号区间
-adrmm restore --all           # 全部
-adrmm restore --pick          # 交互式勾选
+admr restore --last          # 最近一个
+admr restore 1 3 5           # 多个编号
+admr restore 1-20            # 编号区间
+admr restore --all           # 全部
+admr restore --pick          # 交互式勾选
 ```
 
 目标位置已有同名文件时默认拒绝，加 `--replace` 会**先把冲突文件回收、再还原选中项**：
 
 ```bash
-adrmm restore 1 --replace
+admr restore 1 --replace
 ```
 
 ```
@@ -408,7 +408,7 @@ adrmm restore 1 --replace
 ## 第六章 · 彻底清理（purge / gc / empty）
 
 ```bash
-adrmm purge 2
+admr purge 2
 ```
 
 ```
@@ -416,19 +416,19 @@ adrmm purge 2
 ```
 
 ```bash
-adrmm purge --last
+admr purge --last
 ```
 
 ```bash
-adrmm purge 1-5 --yes
+admr purge 1-5 --yes
 ```
 
 ```bash
-adrmm purge --name "*.tmp" --dry-run
+admr purge --name "*.tmp" --dry-run
 ```
 
 ```bash
-adrmm empty
+admr empty
 ```
 
 ```
@@ -441,7 +441,7 @@ adrmm empty
 ```
 
 ```bash
-adrmm empty --yes
+admr empty --yes
 ```
 
 清理后 `bin` 表对应行被删除，但 `log` 里的历史记录保留。
@@ -468,11 +468,11 @@ adrmm empty --yes
 | `--sort` | `size:desc,id:asc` | 多字段排序 |
 
 ```bash
-adrmm ls --size +1k --name pdf --sort size:desc
+admr ls --size +1k --name pdf --sort size:desc
 ```
 
 ```bash
-adrmm log --op restore --last 5
+admr log --op restore --last 5
 ```
 
 时间参数接受与 `--deadline` 相同的全部日期格式（见第二章表格），
@@ -515,11 +515,11 @@ adrm -f notes.tmp
 ## 第九章 · 配置与环境变量
 
 ```bash
-adrmm config --init      # 生成带完整注释的配置模板
-adrmm config --show      # 查看生效配置
-adrmm config --edit      # 用 $EDITOR 编辑
-adrmm config --path      # 配置文件路径
-adrmm config --validate  # 校验
+admr config --init      # 生成带完整注释的配置模板
+admr config --show      # 查看生效配置
+admr config --edit      # 用 $EDITOR 编辑
+admr config --path      # 配置文件路径
+admr config --validate  # 校验
 ```
 
 常用配置项（`~/.adrm/config`，`key = value`）：
@@ -557,10 +557,10 @@ adrmm config --validate  # 校验
 安装时已写入系统目录，开新终端即可用。也可以手动取用脚本：
 
 ```bash
-adrmm completions bash
-adrmm completions zsh
-adrmm completions fish
-adrmm completions bash --out ~/.local/share/bash-completion/completions
+admr completions bash
+admr completions zsh
+admr completions fish
+admr completions bash --out ~/.local/share/bash-completion/completions
 ```
 
 补全内容：
@@ -569,14 +569,14 @@ adrmm completions bash --out ~/.local/share/bash-completion/completions
 |------|----------|
 | `adrm <TAB>` | 当前目录**文件**（和 `rm` 一致） |
 | `adrm -<TAB>` | adrm 自己的选项 |
-| `adrmm <TAB>` | **子命令**（ls/log/restore/...） |
-| `adrmm restore <TAB>` | 回收站编号（实时读数据库，附原路径） |
-| `adrmm ls --name <TAB>` | 数据库里的历史文件名 |
-| `adrmm ls --path <TAB>` | 数据库里的历史目录 |
-| `adrmm ls --state <TAB>` | 枚举值 |
-| `adrmm config --<TAB>` | 该子命令的选项 |
+| `admr <TAB>` | **子命令**（ls/log/restore/...） |
+| `admr restore <TAB>` | 回收站编号（实时读数据库，附原路径） |
+| `admr ls --name <TAB>` | 数据库里的历史文件名 |
+| `admr ls --path <TAB>` | 数据库里的历史目录 |
+| `admr ls --state <TAB>` | 枚举值 |
+| `admr config --<TAB>` | 该子命令的选项 |
 
-子命令和文件**永远不在同一屏出现**：`adrm` 只出文件，`adrmm` 只出子命令。
+子命令和文件**永远不在同一屏出现**：`adrm` 只出文件，`admr` 只出子命令。
 
 ---
 
@@ -585,7 +585,7 @@ adrmm completions bash --out ~/.local/share/bash-completion/completions
 默认不装别名，`rm` 保持原样。想要「删除即回收」的完整体验：
 
 ```bash
-adrmm setup --install --alias
+admr setup --install --alias
 ```
 
 ```bash
@@ -606,19 +606,19 @@ complete -o default -o filenames -F _adrm_complete rm
 
 - 别名只在**交互式 shell** 生效；脚本里的 `#!/bin/bash` 调用 `rm` 不受影响
 - 任何时候可以用 `command rm xxx` 或 `/bin/rm xxx` 走原生 rm
-- 逃生通道：`adrmm purge --all --yes` 清空回收站，`adrmm setup --uninstall` 移除集成
+- 逃生通道：`admr purge --all --yes` 清空回收站，`admr setup --uninstall` 移除集成
 
 ---
 
 ## 第十二章 · systemd 定时清理（可选）
 
 ```bash
-adrmm setup --install --timer
+admr setup --install --timer
 ```
 
 生成并启用：
 
-- `~/.config/systemd/user/adrm-gc.service`（`ExecStart=/usr/bin/adrmm gc --quiet`）
+- `~/.config/systemd/user/adrm-gc.service`（`ExecStart=/usr/bin/admr gc --quiet`）
 - `~/.config/systemd/user/adrm-gc.timer`（`OnCalendar=daily`，`Persistent=true`）
 
 ```bash
@@ -626,14 +626,14 @@ systemctl --user list-timers adrm-gc.timer
 ```
 
 没有 systemd 用户会话时会写入单元文件并提示手动启用，不会报错中断安装。
-卸载时 `adrmm setup --uninstall` 会一并停用并删除。
+卸载时 `admr setup --uninstall` 会一并停用并删除。
 
 ---
 
 ## 第十三章 · 自检、统计与数据库
 
 ```bash
-adrmm doctor
+admr doctor
 ```
 
 ```
@@ -649,7 +649,7 @@ adrm 自检报告:
 ```
 
 ```bash
-adrmm stats
+admr stats
 ```
 
 ```
@@ -661,7 +661,7 @@ adrmm stats
 ```
 
 ```bash
-adrmm db --path
+admr db --path
 ```
 
 ```
@@ -669,7 +669,7 @@ adrmm db --path
 ```
 
 ```bash
-adrmm db --reset
+admr db --reset
 ```
 
 回收站非空时会先列出并询问是否先彻底清空，空则直接重置。数据库使用 WAL 模式 +
@@ -681,21 +681,21 @@ adrmm db --reset
 
 | 命令 | 作用 |
 |------|------|
-| `adrmm ls` | 列出当前回收站 |
-| `adrmm log` | 操作历史（只增不改） |
-| `adrmm restore <id...>` | 还原；`--last` / `--all` / `--replace` / `--pick` |
-| `adrmm undo` | 还原最近回收的一项 |
-| `adrmm purge <id...>` | 彻底清理；`--last` / `--all` / `--yes` |
-| `adrmm gc` | 清理过期项；`--dry-run` / `--yes` / `--quiet` |
-| `adrmm empty` | 清空回收站；`--yes` |
-| `adrmm stats` | 统计信息 |
-| `adrmm config` | `--init` / `--show` / `--edit` / `--path` / `--validate` |
-| `adrmm completions` | 输出补全脚本；`--out DIR` |
-| `adrmm setup` | `--install` / `--uninstall` / `--status` / `--alias` / `--timer` |
-| `adrmm doctor` | 自检 |
-| `adrmm db` | `--path` / `--reset` |
-| `adrmm help [命令]` | 帮助 |
-| `adrmm version` | 版本 |
+| `admr ls` | 列出当前回收站 |
+| `admr log` | 操作历史（只增不改） |
+| `admr restore <id...>` | 还原；`--last` / `--all` / `--replace` / `--pick` |
+| `admr undo` | 还原最近回收的一项 |
+| `admr purge <id...>` | 彻底清理；`--last` / `--all` / `--yes` |
+| `admr gc` | 清理过期项；`--dry-run` / `--yes` / `--quiet` |
+| `admr empty` | 清空回收站；`--yes` |
+| `admr stats` | 统计信息 |
+| `admr config` | `--init` / `--show` / `--edit` / `--path` / `--validate` |
+| `admr completions` | 输出补全脚本；`--out DIR` |
+| `admr setup` | `--install` / `--uninstall` / `--status` / `--alias` / `--timer` |
+| `admr doctor` | 自检 |
+| `admr db` | `--path` / `--reset` |
+| `admr help [命令]` | 帮助 |
+| `admr version` | 版本 |
 
 任何命令加 `--help` 看该命令的详细帮助。
 
@@ -711,8 +711,8 @@ bash install.sh --uninstall --purge-home # 连回收站一起删
 或只用二进制：
 
 ```bash
-adrmm setup --uninstall             # rc 块、补全脚本、timer
-adrmm setup --uninstall --purge-home # 再加 ~/.adrm
+admr setup --uninstall             # rc 块、补全脚本、timer
+admr setup --uninstall --purge-home # 再加 ~/.adrm
 ```
 
 只删自己写的内容：rc 文件里带 `# >>> adrm >>>` / `# <<< adrm <<<` 标记的块被整段移除，
@@ -736,7 +736,7 @@ adrmm setup --uninstall --purge-home # 再加 ~/.adrm
 
 ```bash
 go build -o adrm .            # 删除面孔
-go build -o adrmm ./cmd/adrmm # 管理面孔
+go build -o admr ./cmd/admr # 管理面孔
 go test ./...
 bash tests/integration.sh     # 85 项集成测试
 ```
@@ -754,7 +754,7 @@ bash tests/integration.sh     # 85 项集成测试
 ## English
 
 **adrm** turns `rm` into a recycle bin. Two binaries, one vocabulary each:
-`adrm` deletes (rm-compatible, completes file names), `adrmm` manages the trash
+`adrm` deletes (rm-compatible, completes file names), `admr` manages the trash
 (completes subcommands).
 
 ```bash
@@ -765,10 +765,10 @@ curl -fsSL https://raw.githubusercontent.com/wubinstu/adrm/main/install.sh | bas
 adrm report.pdf                 # recycle
 adrm -r old-project/            # recycle a directory
 adrm file1 --deadline "2027/1/1" # keep until a date
-adrmm ls                        # what is in the trash
-adrmm restore 1                 # put it back
-adrmm purge 1                   # delete for real
-adrmm log                       # append-only history
+admr ls                        # what is in the trash
+admr restore 1                 # put it back
+admr purge 1                   # delete for real
+admr log                       # append-only history
 ```
 
 Install options: `--alias` (alias rm=adrm and take over rm's completion),

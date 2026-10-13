@@ -10,10 +10,10 @@ import (
 // are strictly ASCII so they render on any terminal.
 func (a *app) usageText() string {
 	if a.mode == ModeManage {
-		return i18n.Tr(`adrmm `+version+` - 管理 adrm 回收站
+		return i18n.Tr(`admr `+version+` - 管理 adrm 回收站
 
 用法 / usage:
-  adrmm <子命令> [选项]
+  admr <子命令> [选项]
 
 子命令 / commands:
   ls        列出当前回收站
@@ -33,11 +33,11 @@ func (a *app) usageText() string {
   version   版本
 
 删除文件请用 rm 的安全替代品: adrm <文件...>
-输入 'adrmm help' 查看完整帮助。
-`, `adrmm `+version+` - manage the adrm trash bin
+输入 'admr help' 查看完整帮助。
+`, `admr `+version+` - manage the adrm trash bin
 
 usage:
-  adrmm <command> [options]
+  admr <command> [options]
 
 commands:
   ls        list the current trash
@@ -57,7 +57,7 @@ commands:
   version   version
 
 to delete files use the safer rm: adrm <files...>
-try 'adrmm help' for the full help.
+try 'admr help' for the full help.
 `)
 	}
 	return i18n.Tr(`adrm `+version+` - 更安全的 rm: 删除即回收, 可随时还原
@@ -65,21 +65,21 @@ try 'adrmm help' for the full help.
 用法 / usage:
   adrm [选项] <文件...> [+持续时间|--for 时间|--deadline 日期]
 
-删除的文件进入回收站, 用 'adrmm' 管理:
-  adrmm ls          查看回收站
-  adrmm restore 12  还原第 12 项
+删除的文件进入回收站, 用 'admr' 管理:
+  admr ls          查看回收站
+  admr restore 12  还原第 12 项
 
-输入 'adrm --help' 查看完整帮助, 'adrmm --help' 查看管理命令。
+输入 'adrm --help' 查看完整帮助, 'admr --help' 查看管理命令。
 `, `adrm `+version+` - a safer rm: deletes go to the trash, restorable anytime
 
 usage:
   adrm [options] <files...> [+dur|--for dur|--deadline date]
 
-deleted files go to the trash bin; manage it with 'adrmm':
-  adrmm ls          list the trash
-  adrmm restore 12  restore item 12
+deleted files go to the trash bin; manage it with 'admr':
+  admr ls          list the trash
+  admr restore 12  restore item 12
 
-try 'adrm --help' for full options, 'adrmm --help' for management commands.
+try 'adrm --help' for full options, 'admr --help' for management commands.
 `)
 }
 
@@ -96,7 +96,7 @@ func (a *app) deleteHelpText() string {
 
 概述
   adrm 把 "删除" 变成 "回收": 文件被移动到回收站而不是真正删除,
-  之后用 adrmm 列出/还原/彻底清理。单个静态可执行文件, 无需守护进程。
+  之后用 admr 列出/还原/彻底清理。单个静态可执行文件, 无需守护进程。
   每个用户有独立的 ~/.adrm 主目录。
 
 用法
@@ -126,23 +126,23 @@ func (a *app) deleteHelpText() string {
   悬空的时间参数会报错, 且任何文件都不会被回收
 
 管理回收站 (另一个二进制)
-  adrmm ls / log / restore / undo / purge / gc / empty / stats /
+  admr ls / log / restore / undo / purge / gc / empty / stats /
         config / completions / setup / doctor / db / help / version
-  输入 'adrmm --help' 查看详情。
+  输入 'admr --help' 查看详情。
 
 配置与环境变量
   ADRM_HOME   主目录 (默认 ~/.adrm)
   ADRM_DB     数据库路径      ADRM_TRASH  回收站目录
   ADRM_CONFIG 配置文件        ADRM_IGNORE 忽略规则文件
   ADRM_LANG   zh|en          ADRM_COLOR  auto|always|never
-  配置文件: $ADRM_HOME/config (key = value, 'adrmm config --init' 生成模板)
+  配置文件: $ADRM_HOME/config (key = value, 'admr config --init' 生成模板)
 
 仓库: https://github.com/wubinstu/adrm
 `, `adrm `+version+` - an rm replacement with a trash bin (delete files)
 
 overview
   adrm turns "delete" into "recycle": files move into a trash directory
-  instead of being destroyed, and are managed with the adrmm binary.
+  instead of being destroyed, and are managed with the admr binary.
   One static executable, no daemon. Each user has a private ~/.adrm home.
 
 usage
@@ -173,16 +173,16 @@ expiry (right-associative, strictly validated, whole command checked first)
   a dangling expiry argument is an error and nothing is recycled
 
 manage the trash bin (the other binary)
-  adrmm ls / log / restore / undo / purge / gc / empty / stats /
+  admr ls / log / restore / undo / purge / gc / empty / stats /
         config / completions / setup / doctor / db / help / version
-  try 'adrmm --help' for details.
+  try 'admr --help' for details.
 
 config and environment
   ADRM_HOME   home directory (default ~/.adrm)
   ADRM_DB     database file    ADRM_TRASH  trash directory
   ADRM_CONFIG config file      ADRM_IGNORE ignore rules file
   ADRM_LANG   zh|en            ADRM_COLOR  auto|always|never
-  config file: $ADRM_HOME/config (key = value; 'adrmm config --init' writes a
+  config file: $ADRM_HOME/config (key = value; 'admr config --init' writes a
   template)
 
 repo: https://github.com/wubinstu/adrm
@@ -190,10 +190,10 @@ repo: https://github.com/wubinstu/adrm
 }
 
 func (a *app) manageHelpText() string {
-	return i18n.Tr(`adrmm `+version+` - 管理 adrm 回收站
+	return i18n.Tr(`admr `+version+` - 管理 adrm 回收站
 
 概述
-  adrmm 管理 adrm 删除的文件: 列出、还原、彻底清理、统计、配置、
+  admr 管理 adrm 删除的文件: 列出、还原、彻底清理、统计、配置、
   shell 集成与自检。删除文件请用 adrm <文件...>。
 
 管理命令
@@ -241,10 +241,10 @@ func (a *app) manageHelpText() string {
   ADRM_LANG   zh|en          ADRM_COLOR  auto|always|never
 
 仓库: https://github.com/wubinstu/adrm
-`, `adrmm `+version+` - manage the adrm trash bin
+`, `admr `+version+` - manage the adrm trash bin
 
 overview
-  adrmm manages what adrm deleted: list, restore, purge, statistics, config,
+  admr manages what adrm deleted: list, restore, purge, statistics, config,
   shell integration and self-checks. To delete files use: adrm <files...>
 
 commands

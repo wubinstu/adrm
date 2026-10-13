@@ -24,7 +24,7 @@ func runCLI(t *testing.T, home string, args ...string) (int, string, string) {
 	return code, out.String(), errb.String()
 }
 
-// runMgr runs the adrmm (management) face.
+// runMgr runs the admr (management) face.
 func runMgr(t *testing.T, home string, args ...string) (int, string, string) {
 	t.Helper()
 	t.Setenv("ADRM_HOME", home)
@@ -43,7 +43,7 @@ func runCLIStdin(t *testing.T, home, stdin string, args ...string) (int, string,
 	return code, out.String(), errb.String()
 }
 
-// runMgrStdin runs the adrmm (management) face with piped stdin.
+// runMgrStdin runs the admr (management) face with piped stdin.
 func runMgrStdin(t *testing.T, home, stdin string, args ...string) (int, string, string) {
 	t.Helper()
 	t.Setenv("ADRM_HOME", home)
@@ -549,7 +549,7 @@ func TestCompletionCandidates(t *testing.T) {
 	}
 	// the management face must never offer file names alongside subcommands
 	if out := run(); strings.Contains(out, "a.txt") {
-		t.Errorf("adrmm must not complete files: %q", out)
+		t.Errorf("admr must not complete files: %q", out)
 	}
 	// the delete face must never offer subcommands, only its own options
 	_, delOut, _ := runCLI(t, home, append([]string{"__complete", "bash"}, "-")...)
@@ -684,19 +684,19 @@ func TestSetupInstallUninstall(t *testing.T) {
 	}
 	// completions land in the per-user directory, one pair per binary
 	userComp := filepath.Join(fakeUser, ".local", "share", "bash-completion", "completions")
-	for _, name := range []string{"adrm.bash", "adrmm.bash"} {
+	for _, name := range []string{"adrm.bash", "admr.bash"} {
 		if _, err := os.Stat(filepath.Join(userComp, name)); err != nil {
 			t.Errorf("completion script missing: %v", err)
 		}
 	}
 	// the two scripts must not share a vocabulary
 	adrmScript, _ := os.ReadFile(filepath.Join(userComp, "adrm.bash"))
-	adrmmScript, _ := os.ReadFile(filepath.Join(userComp, "adrmm.bash"))
+	admrScript, _ := os.ReadFile(filepath.Join(userComp, "admr.bash"))
 	if strings.Contains(string(adrmScript), "subcommand") {
 		t.Errorf("adrm.bash must not mention subcommands:\n%s", adrmScript)
 	}
-	if !strings.Contains(string(adrmmScript), "__nofiles__") {
-		t.Errorf("adrmm.bash must suppress file completion:\n%s", adrmmScript)
+	if !strings.Contains(string(admrScript), "__nofiles__") {
+		t.Errorf("admr.bash must suppress file completion:\n%s", admrScript)
 	}
 	if _, err := os.Stat(filepath.Join(home, "adrm-init.sh")); err != nil {
 		t.Errorf("init script missing: %v", err)
@@ -714,7 +714,7 @@ func TestSetupInstallUninstall(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "completions")); !os.IsNotExist(err) {
 		t.Error("completions dir should be gone")
 	}
-	for _, name := range []string{"adrm.bash", "adrmm.bash"} {
+	for _, name := range []string{"adrm.bash", "admr.bash"} {
 		if _, err := os.Stat(filepath.Join(userComp, name)); !os.IsNotExist(err) {
 			t.Errorf("completion script should be removed: %s", name)
 		}

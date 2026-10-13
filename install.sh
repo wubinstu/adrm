@@ -5,7 +5,7 @@
 #   bash install.sh --uninstall [--purge-home]   # clean removal
 #
 # By default only the binaries and the system-wide shell completions are
-# installed: adrm (a safer rm) and adrmm (the trash bin manager). Each user
+# installed: adrm (a safer rm) and admr (the trash bin manager). Each user
 # then gets a private ~/.adrm home automatically on first use.
 #
 # Optional extras (opt-in):
@@ -36,7 +36,7 @@ PURGE_HOME=0
 ASSUME_YES=0
 MARK_BEGIN="# >>> adrm >>>"
 MARK_END="# <<< adrm <<<"
-BINARIES="adrm adrmm"
+BINARIES="adrm admr"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -103,8 +103,8 @@ if [ "$UNINSTALL" = "1" ]; then
 
     say "== adrm uninstall =="
     # 0. let the binary remove what it owns (rc blocks, completions, timer)
-    if [ -x "$INSTALL_DIR/adrmm" ]; then
-        ADRM_HOME="$ADRM_HOME_DIR" "$INSTALL_DIR/adrmm" setup --uninstall ${PURGE_HOME:+--purge-home} || true
+    if [ -x "$INSTALL_DIR/admr" ]; then
+        ADRM_HOME="$ADRM_HOME_DIR" "$INSTALL_DIR/admr" setup --uninstall ${PURGE_HOME:+--purge-home} || true
     fi
     # 1. shell integration in rc files (pure shell, works without the binary)
     rc_files="$HOME/.bashrc $HOME/.zshrc $HOME/.config/fish/config.fish"
@@ -211,7 +211,7 @@ fetch() { # fetch <url> <out>
 say ""
 say "== adrm installer =="
 say "  platform : $OS_NAME/$ARCH_NAME"
-say "  binaries : $INSTALL_DIR/adrm $INSTALL_DIR/adrmm"
+say "  binaries : $INSTALL_DIR/adrm $INSTALL_DIR/admr"
 say "  home     : $ADRM_HOME_DIR (created per user on first use)"
 say "  shells   : $SHELLS (system-wide completions)"
 say "  rm alias : $DO_ALIAS    systemd timer : $DO_TIMER"
@@ -244,7 +244,7 @@ fi
 for art in $ARTIFACTS; do
     install -m 0755 "$TMPDIR_INSTALL/$art" "$INSTALL_DIR/${art%%-*}"
 done
-say "installed $INSTALL_DIR/adrm and $INSTALL_DIR/adrmm"
+say "installed $INSTALL_DIR/adrm and $INSTALL_DIR/admr"
 
 # shell integration + config via the management binary (single source of
 # truth); completions go to the system-wide directories when writable.
@@ -254,17 +254,17 @@ extra=""
 [ "$DO_ALIAS" = "1" ] && extra="$extra --alias"
 [ "$DO_TIMER" = "1" ] && extra="$extra --timer"
 # shellcheck disable=SC2086
-"$INSTALL_DIR/adrmm" setup --install --shells "$SHELLS" $extra
+"$INSTALL_DIR/admr" setup --install --shells "$SHELLS" $extra
 
 if [ ! -f "$ADRM_HOME_DIR/config" ]; then
-    "$INSTALL_DIR/adrmm" config --init
+    "$INSTALL_DIR/admr" config --init
 fi
 
-"$INSTALL_DIR/adrmm" doctor || true
+"$INSTALL_DIR/admr" doctor || true
 
 say ""
 say "done. open a new shell (or run: source ~/.bashrc) and try:"
 say "  adrm --help      # delete files (a safer rm)"
-say "  adrmm --help     # manage the trash bin"
+say "  admr --help     # manage the trash bin"
 say "  adrm file.txt    # recycle a file"
-say "  adrmm ls         # see what is in the trash"
+say "  admr ls         # see what is in the trash"

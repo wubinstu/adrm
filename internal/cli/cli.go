@@ -26,16 +26,16 @@ var subcommands = map[string]bool{
 	"setup": true, "doctor": true, "db": true,
 }
 
-// Mode selects which face of the CLI is running. adrm and adrmm are two
+// Mode selects which face of the CLI is running. adrm and admr are two
 // binaries built from the same tree so that shell completion can keep the
 // two vocabularies strictly apart: adrm completes file paths (like /bin/rm),
-// adrmm completes subcommands (like git).
+// admr completes subcommands (like git).
 type Mode int
 
 const (
 	// ModeDelete is the rm-compatible binary: adrm <files...>
 	ModeDelete Mode = iota
-	// ModeManage is the trash-management binary: adrmm <subcommand> ...
+	// ModeManage is the trash-management binary: admr <subcommand> ...
 	ModeManage
 )
 
@@ -53,7 +53,7 @@ type app struct {
 // Name is the program name as the user typed it.
 func (a *app) Name() string {
 	if a.mode == ModeManage {
-		return "adrmm"
+		return "admr"
 	}
 	return "adrm"
 }
@@ -99,7 +99,7 @@ func Run(args []string, in io.Reader, out, errw io.Writer, mode Mode) int {
 	return a.runRecycle(args)
 }
 
-// runManage dispatches adrmm: the first non-option token is the subcommand.
+// runManage dispatches admr: the first non-option token is the subcommand.
 func (a *app) runManage(args []string) int {
 	cmd, cmdIdx := scanCommand(args)
 	if cmdIdx < 0 {
@@ -108,7 +108,7 @@ func (a *app) runManage(args []string) int {
 			return 0
 		}
 		if hasFlag(args, "--version", "-V") {
-			fmt.Fprintf(a.out, "adrmm %s\n", version)
+			fmt.Fprintf(a.out, "admr %s\n", version)
 			return 0
 		}
 		a.printUsage()
@@ -119,7 +119,7 @@ func (a *app) runManage(args []string) int {
 		a.printHelp(restAfter(args, cmdIdx))
 		return 0
 	case "version":
-		fmt.Fprintf(a.out, "adrmm %s\n", version)
+		fmt.Fprintf(a.out, "admr %s\n", version)
 		return 0
 	case "__complete":
 		return a.runComplete(args[cmdIdx+1:])
@@ -127,7 +127,7 @@ func (a *app) runManage(args []string) int {
 	if subcommands[cmd] {
 		return a.runSubcommand(cmd, append(args[:cmdIdx:cmdIdx], args[cmdIdx+1:]...))
 	}
-	return a.fail(usageErr("%s", i18n.Tr("未知子命令: %s (输入 'adrmm help' 查看全部)", "unknown command: %s (try 'adrmm help')", cmd)))
+	return a.fail(usageErr("%s", i18n.Tr("未知子命令: %s (输入 'admr help' 查看全部)", "unknown command: %s (try 'admr help')", cmd)))
 }
 
 // scanCommand finds the first non-option token (the subcommand, if any),
